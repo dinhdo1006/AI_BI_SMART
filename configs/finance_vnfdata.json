@@ -1,0 +1,221 @@
+{
+  "domain_id": "finance_vnfdata",
+  "domain_name": "VNFDATA — Hệ thống dữ liệu tài chính",
+  "db_url": "postgresql+psycopg2://postgres:CHANGE_ME@127.0.0.1:5432/vnfdatadb",
+  "ddl_schema": "-- DDL thật lấy từ PostgreSQL introspection (Schema RAG).\n-- Bảng lõi (đã khớp \\d): companies, stocks, stock_prices (partitioned),\n-- financial_statements, financial_indicators.\n-- Join chính: stock_prices.company_id → companies.id;\n-- financial_statements.company_id → companies.id;\n-- financial_indicators.symbol → companies.ticker.",
+  "data_dictionary": {
+    "companies": {
+      "_table": "Doanh nghiệp / tổ chức phát hành — hồ sơ công ty (canonical). Join giá & BCTC qua id; join chỉ số qua ticker",
+      "id": "Khóa chính công ty (PK) — FK từ stock_prices, financial_statements",
+      "ticker": "Mã cổ phiếu, vd: FPT, VCB, HPG (UNIQUE)",
+      "company_name": "Tên đầy đủ doanh nghiệp",
+      "short_name": "Tên ngắn / tên giao dịch",
+      "exchange_id": "FK → exchanges.id (sàn)",
+      "sector_id": "FK → sectors.id (ngành)",
+      "company_type": "Loại: cổ phiếu / quỹ / …",
+      "description": "Mô tả doanh nghiệp",
+      "listing_date": "Ngày niêm yết",
+      "shares_outstanding": "Số lượng cổ phiếu đang lưu hành",
+      "founded_year": "Năm thành lập",
+      "free_float": "Số cổ phiếu free-float",
+      "free_float_pct": "Tỷ lệ free-float (%)",
+      "registered_capital": "Vốn điều lệ đăng ký",
+      "website": "Website",
+      "phone": "Điện thoại",
+      "address": "Địa chỉ",
+      "view_count": "Lượt xem hồ sơ"
+    },
+    "stocks": {
+      "_table": "Danh mục mã CK (song song companies) — dùng cho quotes_realtime(symbol→stocks.ticker). Ưu tiên companies cho phân tích giá/BCTC",
+      "id": "Khóa chính mã CK",
+      "ticker": "Mã cổ phiếu (UNIQUE)",
+      "company_name": "Tên doanh nghiệp",
+      "exchange_id": "FK → exchanges.id",
+      "sector_id": "FK → sectors.id",
+      "company_type": "Loại (mặc định: cổ phiếu)",
+      "description": "Mô tả",
+      "listing_date": "Ngày niêm yết",
+      "shares_outstanding": "Cổ phiếu lưu hành",
+      "is_active": "Đang hoạt động (true/false)"
+    },
+    "stock_prices": {
+      "_table": "Giá lịch sử OHLCV theo ngày — PARTITION BY RANGE(trade_date). KHÔNG có cột symbol: JOIN companies c ON c.id = company_id rồi lọc c.ticker",
+      "id": "PK (cùng trade_date)",
+      "company_id": "FK → companies.id",
+      "trade_date": "Ngày giao dịch (partition key)",
+      "open_price": "Giá mở cửa",
+      "high_price": "Giá cao nhất",
+      "low_price": "Giá thấp nhất",
+      "close_price": "Giá đóng cửa",
+      "adjusted_price": "Giá điều chỉnh",
+      "volume": "Khối lượng giao dịch",
+      "value": "Giá trị giao dịch",
+      "change_percent": "% thay đổi giá",
+      "ref_price": "Giá tham chiếu",
+      "matched_volume": "KL khớp",
+      "matched_value": "GT khớp",
+      "source": "Nguồn dữ liệu"
+    },
+    "financial_indicators": {
+      "_table": "Chỉ số tài chính theo ngày tính (P/E, P/B, EPS, ROE…). PK (calc_date, symbol). symbol = companies.ticker",
+      "calc_date": "Ngày tính chỉ số",
+      "symbol": "Mã CP (= companies.ticker)",
+      "pe_ratio": "P/E",
+      "eps_ttm": "EPS trailing twelve months",
+      "pb_ratio": "P/B",
+      "book_value": "Giá trị sổ sách / cổ phiếu",
+      "roe": "ROE",
+      "roa": "ROA",
+      "de_ratio": "Debt/Equity",
+      "market_cap": "Vốn hóa thị trường",
+      "avg_volume_20d": "KL trung bình 20 phiên",
+      "high_52w": "Đỉnh 52 tuần",
+      "low_52w": "Đáy 52 tuần",
+      "beta_1y": "Beta 1 năm"
+    },
+    "financial_statements": {
+      "_table": "Báo cáo tài chính theo năm/quý. JOIN companies qua company_id. UNIQUE (company_id, fiscal_year, fiscal_quarter)",
+      "id": "PK báo cáo",
+      "company_id": "FK → companies.id",
+      "fiscal_year": "Năm tài chính",
+      "fiscal_quarter": "Quý (1–4; NULL = năm)",
+      "report_type": "Loại báo cáo (quý/năm/…)",
+      "net_revenue": "Doanh thu thuần (DN thường)",
+      "net_interest_income": "Thu nhập lãi thuần (ngân hàng)",
+      "operating_revenue": "Doanh thu hoạt động",
+      "net_income": "Lợi nhuận sau thuế",
+      "gross_profit": "Lãi gộp",
+      "operating_profit": "Lợi nhuận từ HĐKD",
+      "profit_before_tax": "LN trước thuế",
+      "total_assets": "Tổng tài sản",
+      "equity": "Vốn chủ sở hữu",
+      "total_debt": "Tổng nợ",
+      "operating_cash_flow": "Dòng tiền HĐKD",
+      "investing_cash_flow": "Dòng tiền đầu tư",
+      "financing_cash_flow": "Dòng tiền tài chính",
+      "roe": "ROE (trên BCTC)",
+      "roa": "ROA (trên BCTC)",
+      "de_ratio": "Hệ số nợ/VCSH",
+      "market_cap": "Vốn hóa (nếu có)",
+      "pe_ratio": "P/E (nếu có)",
+      "pb_ratio": "P/B (nếu có)",
+      "dividend_yield": "Tỷ suất cổ tức"
+    },
+    "exchanges": {
+      "_table": "Sàn giao dịch (HOSE, HNX, UPCOM)",
+      "id": "Khóa sàn",
+      "code": "Mã sàn (HOSE/HSX, HNX, UPCOM)",
+      "name": "Tên sàn"
+    },
+    "sectors": {
+      "_table": "Ngành / sector",
+      "id": "Khóa ngành",
+      "code": "Mã ngành",
+      "name": "Tên ngành"
+    },
+    "industries_icb": {
+      "_table": "Phân ngành ICB",
+      "id": "Khóa ICB",
+      "code": "Mã ICB",
+      "name": "Tên ngành ICB",
+      "level": "Cấp phân ngành"
+    },
+    "market_indices": {
+      "_table": "Chỉ số thị trường (VN-Index, VN30…)",
+      "symbol": "Mã chỉ số",
+      "name": "Tên chỉ số"
+    },
+    "index_constituents": {
+      "_table": "Thành phần chỉ số",
+      "index_symbol": "Mã chỉ số",
+      "stock_symbol": "Mã CP thành phần",
+      "weight": "Tỷ trọng"
+    },
+    "corporate_actions": {
+      "_table": "Sự kiện doanh nghiệp (cổ tức, phát hành…)",
+      "company_id": "FK → companies.id",
+      "action_type": "Loại sự kiện",
+      "ex_date": "Ngày giao dịch không hưởng quyền"
+    },
+    "foreign_trades": {
+      "_table": "Giao dịch khối ngoại",
+      "company_id": "FK → companies.id",
+      "trade_date": "Ngày",
+      "buy_volume": "KL mua",
+      "sell_volume": "KL bán",
+      "net_volume": "KL ròng"
+    }
+  },
+  "column_labels": {
+    "ticker": "Mã CP",
+    "symbol": "Mã CP",
+    "company_name": "Tên công ty",
+    "short_name": "Tên ngắn",
+    "exchange": "Sàn",
+    "trade_date": "Ngày GD",
+    "calc_date": "Ngày tính",
+    "open_price": "Giá mở",
+    "high_price": "Giá cao",
+    "low_price": "Giá thấp",
+    "close_price": "Giá đóng cửa",
+    "adjusted_price": "Giá điều chỉnh",
+    "volume": "Khối lượng",
+    "value": "Giá trị GD",
+    "change_percent": "% thay đổi",
+    "pe_ratio": "P/E",
+    "pb_ratio": "P/B",
+    "eps_ttm": "EPS (TTM)",
+    "roe": "ROE",
+    "roa": "ROA",
+    "de_ratio": "D/E",
+    "market_cap": "Vốn hóa",
+    "beta_1y": "Beta 1Y",
+    "book_value": "Giá trị sổ sách",
+    "high_52w": "Đỉnh 52W",
+    "low_52w": "Đáy 52W",
+    "avg_volume_20d": "KL TB 20 phiên",
+    "net_revenue": "Doanh thu thuần",
+    "net_income": "LN sau thuế",
+    "net_interest_income": "Thu nhập lãi thuần",
+    "gross_profit": "Lãi gộp",
+    "operating_profit": "LN HĐKD",
+    "profit_before_tax": "LN trước thuế",
+    "total_assets": "Tổng tài sản",
+    "equity": "Vốn CSH",
+    "total_debt": "Tổng nợ",
+    "fiscal_year": "Năm TC",
+    "fiscal_quarter": "Quý",
+    "report_type": "Loại BC",
+    "dividend_yield": "Tỷ suất cổ tức"
+  },
+  "few_shot_examples": [
+    {
+      "question": "Top 10 mã cổ phiếu vốn hóa lớn nhất",
+      "sql": "SELECT fi.symbol AS ticker, c.company_name AS company_name, fi.market_cap AS market_cap, fi.pe_ratio AS pe_ratio, fi.eps_ttm AS eps_ttm FROM financial_indicators fi JOIN companies c ON c.ticker = fi.symbol WHERE fi.calc_date = (SELECT MAX(calc_date) FROM financial_indicators) ORDER BY fi.market_cap DESC NULLS LAST LIMIT 10"
+    },
+    {
+      "question": "Diễn biến giá đóng cửa và khối lượng FPT 20 phiên gần nhất",
+      "sql": "SELECT c.ticker AS ticker, sp.trade_date AS trade_date, sp.open_price AS open_price, sp.high_price AS high_price, sp.low_price AS low_price, sp.close_price AS close_price, sp.volume AS volume, sp.change_percent AS change_percent FROM stock_prices sp JOIN companies c ON c.id = sp.company_id WHERE c.ticker = 'FPT' ORDER BY sp.trade_date DESC LIMIT 20"
+    },
+    {
+      "question": "Liệt kê mã trên sàn HOSE",
+      "sql": "SELECT c.ticker AS ticker, c.company_name AS company_name, e.code AS exchange FROM companies c LEFT JOIN exchanges e ON e.id = c.exchange_id WHERE UPPER(COALESCE(e.code, '')) IN ('HOSE', 'HSX') ORDER BY c.ticker ASC LIMIT 50"
+    },
+    {
+      "question": "So sánh P/E P/B ROE của FPT, VCB, HPG",
+      "sql": "SELECT DISTINCT ON (fi.symbol) fi.symbol AS ticker, fi.pe_ratio AS pe_ratio, fi.pb_ratio AS pb_ratio, fi.roe AS roe, fi.roa AS roa, fi.market_cap AS market_cap, fi.calc_date AS calc_date FROM financial_indicators fi WHERE fi.symbol IN ('FPT', 'VCB', 'HPG') ORDER BY fi.symbol ASC, fi.calc_date DESC"
+    },
+    {
+      "question": "Doanh thu và lợi nhuận các kỳ gần nhất của FPT",
+      "sql": "SELECT c.ticker AS ticker, fs.fiscal_year AS fiscal_year, fs.fiscal_quarter AS fiscal_quarter, fs.report_type AS report_type, fs.net_revenue AS net_revenue, fs.net_income AS net_income, fs.total_assets AS total_assets, fs.equity AS equity FROM financial_statements fs JOIN companies c ON c.id = fs.company_id WHERE c.ticker = 'FPT' ORDER BY fs.fiscal_year DESC, fs.fiscal_quarter DESC NULLS LAST LIMIT 8"
+    },
+    {
+      "question": "Giá điều chỉnh HPG từ đầu tháng",
+      "sql": "SELECT c.ticker AS ticker, sp.trade_date AS trade_date, sp.close_price AS close_price, sp.adjusted_price AS adjusted_price, sp.volume AS volume FROM stock_prices sp JOIN companies c ON c.id = sp.company_id WHERE c.ticker = 'HPG' AND sp.trade_date >= date_trunc('month', CURRENT_DATE)::date ORDER BY sp.trade_date ASC"
+    },
+    {
+      "question": "Thành phần chỉ số VN30",
+      "sql": "SELECT index_symbol AS index_symbol, stock_symbol AS stock_symbol, weight AS weight FROM index_constituents WHERE UPPER(index_symbol) LIKE '%VN30%' ORDER BY weight DESC NULLS LAST LIMIT 40"
+    }
+  ]
+}

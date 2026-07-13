@@ -1,0 +1,556 @@
+"""FastAPI Router — endpoint Conversational BI."""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Literal
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from core.config_loader import list_available_domains, load_domain_config
+from core.db_dialect import detect_dialect, dialect_label
+from core.db_executor import DbQueryError, execute_query
+from core.insight_stats import compute_insight_stats
+from core.llm_agent import generate_insight, generate_sql, repair_sql
+from core.logger import log_chat_event
+from core.narrative_planner import generate_article
+from core.query_cache import get_cached_response, set_cached_response
+from core.router import (
+    INTENT_CHITCHAT,
+    INTENT_FOLLOWUP,
+    INTENT_OOS,
+    INTENT_SQL,
+    INTENT_VIZ,
+    answer_chitchat,
+    classify_intent,
+    out_of_scope_message,
+)
+from core.schema_introspection import check_db_connection
+from core.schema_rag import build_rag_schema_context, is_schema_rag_enabled
+from core.sql_fast_path import try_fast_sql
+from core.viz_advisor import ChartType, is_viz_only_request, resolve_chart_type
+
+router = APIRouter(prefix="/api/v1", tags=["chat"])
+
+ResponseStatus = Literal["success", "error", "empty"]
+
+_INSIGHT_QUERY_ERROR = (
+    "Xin lỗi, tôi chưa hiểu rõ tiêu chí truy vấn hoặc dữ liệu này có cấu trúc phức tạp. "
+    "Bạn có thể diễn đạt lại câu hỏi không?"
+)
+_INSIGHT_EMPTY_DATA = (
+    "Hệ thống đã truy vấn thành công nhưng không tìm thấy dữ liệu nào khớp với yêu cầu của bạn "
+    "(ví dụ: khoảng thời gian chưa có số liệu)."
+)
+
+
+class HistoryMessage(BaseModel):
+    """Một tin nhắn trong lịch sử chat (dùng cho ngữ cảnh LLM)."""
+
+    role: Literal["user", "assistant"] = Field(
+        ...,
+        description="Vai trò: user hoặc assistant",
+    )
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Nội dung tin nhắn",
+    )
+
+
+class ChatRequest(BaseModel):
+    """Body request cho POST /api/v1/chat."""
+
+    domain_id: str = Field(
+        ...,
+        description="ID domain cấu hình (vd: it_deployment, mining_geology)",
+        examples=["it_deployment"],
+    )
+    query: str = Field(
+        ...,
+        min_length=1,
+        description="Câu hỏi tiếng Việt của người dùng",
+        examples=["Liệt kê tất cả dự án đang triển khai"],
+    )
+    history: list[HistoryMessage] = Field(
+        default_factory=list,
+        description="Lịch sử chat gần đây (role + content) để LLM hiểu ngữ cảnh",
+    )
+    # Cho phép frontend gửi kèm data cũ khi chỉ đổi loại biểu đồ
+    reuse_data: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Data lần trước (khi user chỉ yêu cầu đổi chart)",
+    )
+
+
+class ChatResponse(BaseModel):
+    """Response: SQL + data + insight + loại biểu đồ đề xuất."""
+
+    status: ResponseStatus = "success"
+    domain_id: str
+    query: str
+    sql_query: str
+    data: list[dict[str, Any]]
+    insight: str
+    row_count: int
+    chart_type: ChartType
+    viz_only: bool = False
+    from_cache: bool = False
+    column_labels: dict[str, str] = Field(default_factory=dict)
+    # Phase 2: debug SQL khi status=error — giúp user/dev chỉnh câu hỏi
+    failed_sql: str | None = None
+    error_detail: str | None = None
+    # Router intent (sql/viz/followup/chitchat/oos)
+    intent: str | None = None
+
+
+class ArticleRequest(BaseModel):
+    """Body request cho POST /api/v1/generate_article."""
+
+    domain_id: str = Field(..., description="ID domain")
+    question: str = Field(..., min_length=1, description="Câu hỏi gốc")
+    data: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        description="Dữ liệu JSON đã truy vấn (bắt buộc có ít nhất 1 dòng)",
+    )
+    stats: dict[str, Any] | None = Field(
+        default=None,
+        description="Stats đã tính sẵn (optional — backend tự tính nếu thiếu)",
+    )
+    insight_summary: str = Field(
+        default="",
+        description="Tóm tắt insight hiện có để Narrative Planner tham khảo",
+    )
+
+
+class ArticleResponse(BaseModel):
+    """Bài báo hoàn chỉnh từ Narrative Planner."""
+
+    article_markdown: str
+    outline: dict[str, Any]
+    word_count: int
+    sections_written: int = 0
+    domain_id: str
+    question: str
+
+
+@router.get("/domains")
+def get_domains() -> dict[str, list[dict[str, str]]]:
+    """Liệt kê các domain có sẵn kèm tên hiển thị."""
+    items: list[dict[str, str]] = []
+    for domain_id in list_available_domains():
+        try:
+            cfg = load_domain_config(domain_id)
+            name = str(cfg.get("domain_name") or domain_id)
+        except Exception:
+            name = domain_id
+        items.append({"id": domain_id, "name": name})
+    return {"domains": items}
+
+
+@router.get("/health/domains")
+def get_domains_health() -> dict[str, Any]:
+    """Kiểm tra kết nối DB từng domain + trạng thái RAG schema."""
+    results: dict[str, Any] = {
+        "schema_rag_enabled": is_schema_rag_enabled(),
+        "domains": {},
+    }
+    for domain_id in list_available_domains():
+        try:
+            cfg = load_domain_config(domain_id)
+            db_url = cfg["db_url"]
+            ok, detail = check_db_connection(db_url)
+            dialect = detect_dialect(db_url)
+            results["domains"][domain_id] = {
+                "db_ok": ok,
+                "dialect": dialect,
+                "dialect_label": dialect_label(dialect),
+                "detail": detail if not ok else "connected",
+            }
+        except Exception as exc:
+            results["domains"][domain_id] = {
+                "db_ok": False,
+                "detail": str(exc),
+            }
+    return results
+
+
+@router.post("/generate_article", response_model=ArticleResponse)
+def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
+    """
+    Narrative Planner: outline → write sections → finalize bài báo.
+    Chỉ gọi khi user bấm "Viết Bài Báo" — không chạy trong luồng chat thường.
+    """
+    try:
+        domain_config = load_domain_config(request.domain_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    domain_name = str(domain_config.get("domain_name") or request.domain_id)
+    labels = domain_config.get("column_labels", {}) or {}
+
+    # Đổi key sang nhãn tiếng Việt nếu có — bài báo dễ đọc hơn
+    data_for_article = request.data
+    if labels:
+        data_for_article = [
+            {labels.get(k, k): v for k, v in row.items()} for row in request.data
+        ]
+
+    stats = request.stats
+    if not stats:
+        stats = compute_insight_stats(data_for_article)
+
+    try:
+        result = generate_article(
+            question=request.question,
+            domain_name=domain_name,
+            data=data_for_article,
+            stats=stats,
+            insight_summary=request.insight_summary or "",
+            domain_id=request.domain_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Lỗi Narrative Planner (Ollama): {exc}",
+        ) from exc
+
+    return ArticleResponse(
+        article_markdown=result["article_markdown"],
+        outline=result["outline"],
+        word_count=int(result["word_count"]),
+        sections_written=int(result.get("sections_written") or 0),
+        domain_id=request.domain_id,
+        question=request.question,
+    )
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    """
+    Luồng Text-to-SQL + Insight + Viz:
+      1. Load config
+      2. Nếu chỉ đổi chart + có reuse_data → bỏ qua SQL/LLM
+      3. Cache → Fast-path → Router (Qwen) → SQLCoder nếu cần
+      4. execute → insight → resolve_chart_type
+    """
+    t0 = time.perf_counter()
+    latency_llm_ms = 0.0
+    latency_db_ms = 0.0
+    sql_source = "unknown"
+    sql = ""
+    intent: str | None = None
+
+    history_dicts: list[dict[str, str]] = [
+        {"role": m.role, "content": m.content} for m in request.history
+    ]
+
+    def _log_out(
+        status: str,
+        *,
+        row_count: int = 0,
+        viz_only: bool = False,
+        error: str | None = None,
+        from_cache: bool = False,
+    ) -> None:
+        log_chat_event(
+            domain_id=request.domain_id,
+            query=request.query,
+            status=status,
+            sql_source=sql_source,
+            sql_query=sql,
+            row_count=row_count,
+            latency_total_ms=(time.perf_counter() - t0) * 1000,
+            latency_llm_ms=latency_llm_ms or None,
+            latency_db_ms=latency_db_ms or None,
+            viz_only=viz_only,
+            error=error,
+            from_cache=from_cache,
+        )
+
+    # --- Nhánh nhanh: chỉ đổi loại biểu đồ, tái sử dụng data ---
+    if (
+        is_viz_only_request(request.query)
+        and request.reuse_data
+        and len(request.reuse_data) > 0
+    ):
+        sql_source = "viz_only"
+        intent = INTENT_VIZ
+        sql = "(giữ nguyên truy vấn trước — chỉ đổi loại biểu đồ)"
+        chart = resolve_chart_type(
+            request.query, history=history_dicts, data=request.reuse_data
+        )
+        chart_label = {
+            "pie": "tròn (pie)",
+            "bar": "cột (bar)",
+            "line": "đường (line)",
+            "area": "miền / vùng (area)",
+            "combo": "kết hợp (combo)",
+            "table": "bảng",
+        }.get(chart, chart)
+        # Load labels nếu có domain (không chặn khi thiếu)
+        labels: dict[str, str] = {}
+        try:
+            labels = load_domain_config(request.domain_id).get("column_labels", {}) or {}
+        except Exception:
+            labels = {}
+        resp = ChatResponse(
+            status="success",
+            domain_id=request.domain_id,
+            query=request.query,
+            sql_query=sql,
+            data=request.reuse_data,
+            insight=(
+                f"Đã chuyển hiển thị sang biểu đồ **{chart_label}** "
+                f"trên cùng bộ dữ liệu ({len(request.reuse_data)} dòng)."
+            ),
+            row_count=len(request.reuse_data),
+            chart_type=chart,
+            viz_only=True,
+            column_labels=labels,
+            intent=intent,
+        )
+        _log_out("success", row_count=len(request.reuse_data), viz_only=True)
+        return resp
+
+    # --- Cache: câu hỏi đã hỏi trước đó → trả ngay, bỏ qua LLM + DB ---
+    cached = get_cached_response(request.domain_id, request.query)
+    if cached:
+        sql_source = "cache"
+        sql = str(cached.get("sql_query") or "")
+        row_count = int(cached.get("row_count") or 0)
+        resp = ChatResponse(**cached)
+        _log_out("success", row_count=row_count, from_cache=True)
+        return resp
+
+    # Bước 1: Load metadata domain
+    try:
+        domain_config = load_domain_config(request.domain_id)
+    except FileNotFoundError as exc:
+        _log_out("error", error=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        _log_out("error", error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    labels = domain_config.get("column_labels", {}) or {}
+
+    # Bước 2: Fast-path SQL (ổn định) hoặc Router → LLM
+    sql = try_fast_sql(
+        request.domain_id, request.query, db_url=domain_config["db_url"]
+    )
+    if sql:
+        sql_source = "fast_path"
+        intent = INTENT_SQL
+    else:
+        # Router (Qwen) — phân loại intent trước khi gọi SQLCoder
+        t_llm = time.perf_counter()
+        intent = classify_intent(
+            request.query,
+            has_history=bool(history_dicts),
+            has_reuse_data=bool(request.reuse_data),
+            use_llm=True,
+        )
+        latency_llm_ms += (time.perf_counter() - t_llm) * 1000
+
+        if intent == INTENT_CHITCHAT:
+            sql_source = "router_chitchat"
+            sql = "(không truy vấn — chitchat)"
+            t_llm = time.perf_counter()
+            insight = answer_chitchat(request.query)
+            latency_llm_ms += (time.perf_counter() - t_llm) * 1000
+            _log_out("success", row_count=0)
+            return ChatResponse(
+                status="success",
+                domain_id=request.domain_id,
+                query=request.query,
+                sql_query=sql,
+                data=[],
+                insight=insight,
+                row_count=0,
+                chart_type="table",
+                viz_only=False,
+                column_labels=labels,
+                intent=intent,
+            )
+
+        if intent == INTENT_OOS:
+            sql_source = "router_oos"
+            sql = "(ngoài phạm vi)"
+            _log_out("success", row_count=0)
+            return ChatResponse(
+                status="success",
+                domain_id=request.domain_id,
+                query=request.query,
+                sql_query=sql,
+                data=[],
+                insight=out_of_scope_message(request.query),
+                row_count=0,
+                chart_type="table",
+                viz_only=False,
+                column_labels=labels,
+                intent=intent,
+            )
+
+        if intent == INTENT_VIZ and request.reuse_data:
+            sql_source = "router_viz"
+            sql = "(giữ nguyên truy vấn trước — chỉ đổi loại biểu đồ)"
+            chart = resolve_chart_type(
+                request.query, history=history_dicts, data=request.reuse_data
+            )
+            _log_out("success", row_count=len(request.reuse_data), viz_only=True)
+            return ChatResponse(
+                status="success",
+                domain_id=request.domain_id,
+                query=request.query,
+                sql_query=sql,
+                data=request.reuse_data,
+                insight=(
+                    f"Đã chuyển hiển thị theo yêu cầu trên cùng bộ dữ liệu "
+                    f"({len(request.reuse_data)} dòng)."
+                ),
+                row_count=len(request.reuse_data),
+                chart_type=chart,
+                viz_only=True,
+                column_labels=labels,
+                intent=intent,
+            )
+
+        # followup / sql / viz-without-data → SQLCoder
+        if intent == INTENT_FOLLOWUP:
+            sql_source = "llm_followup"
+        else:
+            intent = INTENT_SQL
+            sql_source = "llm"
+
+        sql_config = build_rag_schema_context(domain_config, request.query)
+        try:
+            t_llm = time.perf_counter()
+            sql = generate_sql(sql_config, request.query, history=history_dicts)
+            latency_llm_ms += (time.perf_counter() - t_llm) * 1000
+        except Exception as exc:
+            _log_out("error", error=str(exc))
+            raise HTTPException(
+                status_code=502,
+                detail=f"Lỗi khi gọi LLM sinh SQL (Ollama): {exc}",
+            ) from exc
+
+    # Bước 3: Guardrail + thực thi (nếu lỗi → sửa 1 lần → fast-path fallback)
+    rows: list[dict[str, Any]] = []
+    try:
+        t_db = time.perf_counter()
+        rows = execute_query(domain_config["db_url"], sql)
+        latency_db_ms += (time.perf_counter() - t_db) * 1000
+    except DbQueryError as first_exc:
+        last_db_error: DbQueryError = first_exc
+        sql_config = build_rag_schema_context(domain_config, request.query)
+        try:
+            t_llm = time.perf_counter()
+            sql = repair_sql(
+                sql_config,
+                request.query,
+                broken_sql=sql,
+                error_message=str(first_exc),
+                history=history_dicts,
+            )
+            latency_llm_ms += (time.perf_counter() - t_llm) * 1000
+            sql_source = "repair"
+            t_db = time.perf_counter()
+            rows = execute_query(domain_config["db_url"], sql)
+            latency_db_ms += (time.perf_counter() - t_db) * 1000
+        except DbQueryError as repair_exc:
+            last_db_error = repair_exc
+            fallback_sql = try_fast_sql(
+                request.domain_id,
+                request.query,
+                db_url=domain_config["db_url"],
+            )
+            if fallback_sql:
+                try:
+                    sql = fallback_sql
+                    sql_source = "fast_path_fallback"
+                    t_db = time.perf_counter()
+                    rows = execute_query(domain_config["db_url"], sql)
+                    latency_db_ms += (time.perf_counter() - t_db) * 1000
+                except DbQueryError as fallback_exc:
+                    last_db_error = fallback_exc
+            if not rows:
+                _log_out("error", error=str(last_db_error))
+                return ChatResponse(
+                    status="error",
+                    domain_id=request.domain_id,
+                    query=request.query,
+                    sql_query=sql,
+                    data=[],
+                    insight=_INSIGHT_QUERY_ERROR,
+                    row_count=0,
+                    chart_type="table",
+                    viz_only=False,
+                    column_labels=labels,
+                    failed_sql=sql,
+                    error_detail=str(last_db_error),
+                    intent=intent,
+                )
+
+    # Kịch bản B: truy vấn OK nhưng không có dữ liệu
+    if not rows:
+        _log_out("empty")
+        resp = ChatResponse(
+            status="empty",
+            domain_id=request.domain_id,
+            query=request.query,
+            sql_query=sql,
+            data=[],
+            insight=_INSIGHT_EMPTY_DATA,
+            row_count=0,
+            chart_type="table",
+            viz_only=False,
+            column_labels=labels,
+            intent=intent,
+        )
+        set_cached_response(
+            request.domain_id, request.query, resp.model_dump(mode="json")
+        )
+        return resp
+
+    # Bước 4: Insight (chỉ khi có dữ liệu)
+    try:
+        t_llm = time.perf_counter()
+        insight = generate_insight(
+            request.query,
+            rows,
+            column_labels=labels,
+        )
+        latency_llm_ms += (time.perf_counter() - t_llm) * 1000
+    except Exception:
+        insight = (
+            "**Tóm tắt:** Dữ liệu đã truy vấn thành công. "
+            "**Chi tiết:** Xem bảng số liệu và biểu đồ phía dưới để đối chiếu chi tiết. "
+            "**Gợi ý:** AI phân tích tạm thời chậm — bạn vẫn có thể tải CSV/Word."
+        )
+
+    # Bước 5: Chọn loại biểu đồ (keyword user ưu tiên hơn auto)
+    chart = resolve_chart_type(request.query, history=history_dicts, data=rows)
+
+    _log_out("success", row_count=len(rows))
+    resp = ChatResponse(
+        status="success",
+        domain_id=request.domain_id,
+        query=request.query,
+        sql_query=sql,
+        data=rows,
+        insight=insight,
+        row_count=len(rows),
+        chart_type=chart,
+        viz_only=False,
+        column_labels=labels,
+        intent=intent,
+    )
+    set_cached_response(
+        request.domain_id, request.query, resp.model_dump(mode="json")
+    )
+    return resp

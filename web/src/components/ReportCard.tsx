@@ -1,0 +1,264 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  Download,
+  FileText,
+  Newspaper,
+  RefreshCw,
+  TriangleAlert,
+} from "lucide-react";
+import { postArticle, postChat } from "@/lib/api";
+import type { ChartType, ChatResponse } from "@/lib/types";
+import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
+import { chartQueryForType } from "@/lib/viz";
+import { useChatStore } from "@/store/chat-store";
+import { cn } from "@/lib/utils";
+import { InsightBlock } from "./InsightBlock";
+import { KpiRow } from "./KpiRow";
+import { DataChart } from "./DataChart";
+import { DataTable } from "./DataTable";
+import { ArticlePanel } from "./ArticlePanel";
+
+const CHART_OPTIONS: { value: ChartType; label: string }[] = [
+  { value: "bar", label: "Cột" },
+  { value: "line", label: "Đường" },
+  { value: "area", label: "Miền" },
+  { value: "pie", label: "Tròn" },
+  { value: "combo", label: "Combo" },
+  { value: "table", label: "Bảng" },
+];
+
+export function ReportCard({
+  payload,
+  reportIndex,
+  messageId,
+}: {
+  payload: ChatResponse;
+  reportIndex: number;
+  messageId: string;
+}) {
+  const domainId = useChatStore((s) => s.domainId);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const messages = useChatStore((s) => s.messages);
+  const msg = messages.find((m) => m.id === messageId);
+
+  const [chartType, setChartType] = useState<ChartType>(
+    payload.chart_type || "bar",
+  );
+  const [syncing, setSyncing] = useState(false);
+  const [writing, setWriting] = useState(false);
+
+  const labels = payload.column_labels || {};
+  const hasData = (payload.data?.length || 0) > 0 && payload.status === "success";
+  const renamed = useMemo(() => {
+    return (payload.data || []).map((row) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(row)) {
+        out[friendlyLabel(k, labels)] = v;
+      }
+      return out;
+    });
+  }, [payload.data, labels]);
+
+  async function onChartChange(next: ChartType) {
+    setChartType(next);
+    if (!payload.data?.length) return;
+    setSyncing(true);
+    try {
+      const updated = await postChat({
+        domainId,
+        query: chartQueryForType(next),
+        history: [],
+        reuseData: payload.data,
+      });
+      if (updated.status === "success" && updated.data?.length) {
+        updateMessage(messageId, {
+          payload: { ...payload, ...updated, data: updated.data },
+        });
+        setChartType(updated.chart_type || next);
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function writeArticle() {
+    if (!payload.data?.length) return;
+    setWriting(true);
+    try {
+      const article = await postArticle({
+        domainId,
+        question: payload.query,
+        data: payload.data,
+        insightSummary: payload.insight || "",
+      });
+      updateMessage(messageId, { article });
+    } finally {
+      setWriting(false);
+    }
+  }
+
+  if (payload.status === "error" || payload.error) {
+    return (
+      <section className="w-full max-w-4xl rounded-2xl border border-copper/25 bg-copper-soft/40 p-5">
+        <div className="flex items-start gap-3">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-copper" />
+          <div>
+            <h3 className="font-[family-name:var(--font-display)] text-lg font-bold text-ink">
+              Lỗi truy vấn
+            </h3>
+            <p className="mt-1 text-sm text-ink-soft">
+              {payload.error || payload.error_detail || "Không rõ nguyên nhân."}
+            </p>
+            {payload.failed_sql && (
+              <pre className="mt-3 overflow-x-auto rounded-xl bg-ink/90 p-3 text-xs text-foam/90">
+                {payload.failed_sql}
+              </pre>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="w-full max-w-5xl overflow-hidden rounded-2xl border border-line bg-white/95 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-teal">
+            Báo cáo #{reportIndex}
+          </p>
+          <h3 className="mt-0.5 font-[family-name:var(--font-display)] text-lg font-bold text-ink">
+            {payload.query}
+          </h3>
+          <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-ink-soft/70">
+            {payload.from_cache && (
+              <span className="rounded-md bg-mist px-2 py-0.5">cache</span>
+            )}
+            {payload.viz_only && (
+              <span className="rounded-md bg-mist px-2 py-0.5">viz only</span>
+            )}
+            {payload.intent && (
+              <span className="rounded-md bg-mist px-2 py-0.5">
+                {payload.intent}
+              </span>
+            )}
+            <span className="rounded-md bg-mist px-2 py-0.5">
+              {payload.row_count} dòng
+            </span>
+          </div>
+        </div>
+
+        {hasData && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-ink-soft">
+              Biểu đồ
+              <select
+                value={chartType}
+                disabled={syncing}
+                onChange={(e) => void onChartChange(e.target.value as ChartType)}
+                className="rounded-lg border border-line bg-foam px-2 py-1.5 text-sm text-ink outline-none focus:border-teal"
+              >
+                {CHART_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {syncing && (
+              <RefreshCw className="h-4 w-4 animate-spin text-teal" />
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-5 p-5">
+        {payload.insight && <InsightBlock text={payload.insight} />}
+
+        {hasData && <KpiRow data={payload.data} labels={labels} />}
+
+        {hasData && (
+          <div
+            className={cn(
+              "grid gap-4",
+              chartType === "table"
+                ? "grid-cols-1"
+                : "grid-cols-1 xl:grid-cols-[0.95fr_1.15fr]",
+            )}
+          >
+            <DataTable data={renamed} />
+            {chartType !== "table" && (
+              <DataChart
+                data={payload.data}
+                chartType={chartType}
+                labels={labels}
+              />
+            )}
+          </div>
+        )}
+
+        {payload.status === "empty" && (
+          <p className="rounded-xl bg-mist/80 px-4 py-3 text-sm text-ink-soft">
+            Không có dòng dữ liệu nào khớp yêu cầu.
+          </p>
+        )}
+
+        {payload.sql_query && !payload.sql_query.startsWith("(") && (
+          <details className="rounded-xl border border-line bg-foam/60 px-4 py-3">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
+              SQL đã chạy
+            </summary>
+            <pre className="mt-2 overflow-x-auto text-xs leading-relaxed text-ink-soft">
+              {payload.sql_query}
+            </pre>
+          </details>
+        )}
+
+        {hasData && (
+          <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+            <button
+              type="button"
+              onClick={() => downloadCsv(renamed)}
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-foam px-3 py-2 text-sm font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadText(
+                  JSON.stringify(payload.data, null, 2),
+                  "bi_export.json",
+                  "application/json",
+                )
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-foam px-3 py-2 text-sm font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink"
+            >
+              <FileText className="h-4 w-4" />
+              JSON
+            </button>
+            <button
+              type="button"
+              disabled={writing}
+              onClick={() => void writeArticle()}
+              className="inline-flex items-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm font-semibold text-foam transition hover:bg-ink-soft disabled:opacity-50"
+            >
+              <Newspaper className="h-4 w-4" />
+              {writing ? "Đang viết…" : "Viết bài báo"}
+            </button>
+          </div>
+        )}
+
+        {msg?.article && (
+          <ArticlePanel
+            article={msg.article}
+            onClear={() => updateMessage(messageId, { article: null })}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
