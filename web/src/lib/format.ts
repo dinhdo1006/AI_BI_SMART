@@ -11,13 +11,15 @@ export function formatNumber(value: unknown, colName = ""): string {
   if (!Number.isFinite(n)) return value == null ? "—" : String(value);
 
   const lower = colName.toLowerCase();
-  if (
-    lower.includes("pct") ||
-    lower.includes("percent") ||
-    lower.includes("ratio") ||
-    lower.includes("roe") ||
-    lower.includes("roa")
-  ) {
+  // Chỉ % cho field % thật — KHÔNG gắn % cho pe_ratio / pb_ratio
+  const isPercent =
+    /(^|_)(pct|percent)(_|$)/.test(lower) ||
+    /change_percent|completion_pct|free_float_pct/.test(lower) ||
+    /^(roe|roa)$/.test(lower) ||
+    lower === "roe" ||
+    lower === "roa";
+
+  if (isPercent) {
     return `${n.toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%`;
   }
   if (Math.abs(n) >= 1_000_000_000) {
