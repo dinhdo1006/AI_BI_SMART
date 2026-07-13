@@ -128,7 +128,8 @@ export function pickChartAxes(data: Record<string, unknown>[]) {
     .filter((c) => c !== x)
     .sort((a, b) => metricScore(b) - metricScore(a));
 
-  const yCols = preferred.slice(0, 4);
+  // Cùng thang đo — tránh EPS (nghìn) che P/E·P/B·ROE (đơn vị)
+  const yCols = selectCompatibleYCols(data, preferred).slice(0, 4);
   const isTimeSeries = Boolean(dateLike[0] && x === dateLike[0]);
   const isComparison =
     Boolean(entity && x === entity) && uniqueCount(data, entity!) <= 20;
@@ -136,10 +137,50 @@ export function pickChartAxes(data: Record<string, unknown>[]) {
   return { x, yCols, dateLike, isTimeSeries, isComparison, entity };
 }
 
+function colMedianAbs(data: Record<string, unknown>[], col: string): number {
+  const vals = data
+    .map((r) => Math.abs(Number(r[col])))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (!vals.length) return 0;
+  return vals[Math.floor(vals.length / 2)];
+}
+
+/** Giữ các cột cùng bậc độ lớn (tỷ lệ max/min median ≤ 80). */
+export function selectCompatibleYCols(
+  data: Record<string, unknown>[],
+  preferred: string[],
+): string[] {
+  if (preferred.length <= 1) return preferred;
+
+  const ratioCols = preferred.filter((c) =>
+    /pe_ratio|^pe$|pb_ratio|^pb$|roe|roa|de_ratio|change_percent|completion_pct/i.test(
+      c,
+    ),
+  );
+  // So sánh định giá: ưu tiên nhóm tỷ lệ (bỏ EPS/vốn hóa lệch scale)
+  if (ratioCols.length >= 2) return ratioCols;
+
+  const withMed = preferred
+    .map((c) => ({ c, m: colMedianAbs(data, c) }))
+    .filter((x) => x.m > 0);
+  if (!withMed.length) return preferred.slice(0, 3);
+
+  const anchor = withMed[0].m;
+  const compatible = withMed
+    .filter((x) => {
+      const ratio = Math.max(x.m, anchor) / Math.min(x.m, anchor);
+      return ratio <= 80;
+    })
+    .map((x) => x.c);
+
+  return compatible.length ? compatible : preferred.slice(0, 2);
+}
+
 function metricScore(col: string): number {
   const c = col.toLowerCase();
-  if (/pe_ratio|^pe$|pb_ratio|^pb$|eps|roe|roa|market_cap|von_hoa/.test(c))
-    return 50;
+  if (/pe_ratio|^pe$|pb_ratio|^pb$|roe|roa/.test(c)) return 60;
+  if (/eps|market_cap|von_hoa/.test(c)) return 45;
   if (PRICE_COL.test(c)) return 40;
   if (VOLUME_COL.test(c)) return 35;
   if (/revenue|income|profit|budget|tonnage|completion/.test(c)) return 30;
@@ -147,26 +188,14 @@ function metricScore(col: string): number {
   return 10;
 }
 
-/** Điều chỉnh loại chart cho hợp dữ liệu (so sánh mã → cột nhóm, giá+KL → combo). */
+/**
+ * Tôn trọng lựa chọn user 100%.
+ * (Gợi ý chart ban đầu vẫn đến từ backend chart_type.)
+ */
 export function refineChartType(
   requested: ChartType,
-  data: Record<string, unknown>[],
+  _data: Record<string, unknown>[],
 ): ChartType {
-  if (requested === "table" || requested === "pie") return requested;
-  const axes = pickChartAxes(data);
-  if (!axes.yCols.length) return "table";
-
-  const hasPrice = axes.yCols.some((c) => PRICE_COL.test(c));
-  const hasVol = axes.yCols.some((c) => VOLUME_COL.test(c));
-
-  if (axes.isTimeSeries && hasPrice && hasVol) return "combo";
-  if (axes.isTimeSeries && requested === "bar") return "line";
-  if (axes.isComparison) {
-    // So sánh FPT/HPG/VCB: cột nhóm đẹp hơn combo lệch scale
-    if (requested === "combo" || requested === "line" || requested === "area") {
-      return "bar";
-    }
-  }
   return requested;
 }
 

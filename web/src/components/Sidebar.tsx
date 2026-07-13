@@ -128,7 +128,9 @@ export function Sidebar() {
               Schema RAG: {health.schema_rag_enabled ? "bật" : "tắt"}
             </p>
           )}
-          <p className="mt-2 truncate text-[11px] text-ink-soft/55">{API_BASE}</p>
+          <p className="mt-2 truncate text-[11px] text-ink-soft/55">
+            {API_BASE || "proxy → /api (cùng origin)"}
+          </p>
         </div>
       </div>
 

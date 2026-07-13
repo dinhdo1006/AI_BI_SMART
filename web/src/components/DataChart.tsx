@@ -139,13 +139,8 @@ export function DataChart({
           {friendlyLabel(x, labels)}
           {yCols.length === 1
             ? ` · ${friendlyLabel(yCols[0], labels)}`
-            : ` · ${yCols.length} chỉ số`}
+            : ` · ${yCols.map((c) => friendlyLabel(c, labels)).join(" · ")}`}
         </p>
-        {effectiveType !== chartType && (
-          <p className="text-[10px] text-teal">
-            Tự chỉnh: {chartType} → {effectiveType}
-          </p>
-        )}
       </div>
 
       <ResponsiveContainer width="100%" height={horizontal ? 340 : 310}>

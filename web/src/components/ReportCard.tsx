@@ -5,20 +5,18 @@ import {
   Download,
   FileText,
   Newspaper,
-  RefreshCw,
   TriangleAlert,
 } from "lucide-react";
-import { postArticle, postChat } from "@/lib/api";
+import { postArticle } from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
-import { chartQueryForType } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import { InsightBlock } from "./InsightBlock";
-import { KpiRow } from "./KpiRow";
-import { DataChart } from "./DataChart";
-import { DataTable } from "./DataTable";
-import { ArticlePanel } from "./ArticlePanel";
+import { InsightBlock } from "@/components/InsightBlock";
+import { KpiRow } from "@/components/KpiRow";
+import { DataChart } from "@/components/DataChart";
+import { DataTable } from "@/components/DataTable";
+import { ArticlePanel } from "@/components/ArticlePanel";
 
 const CHART_OPTIONS: { value: ChartType; label: string }[] = [
   { value: "bar", label: "Cột" },
@@ -46,7 +44,6 @@ export function ReportCard({
   const [chartType, setChartType] = useState<ChartType>(
     payload.chart_type || "bar",
   );
-  const [syncing, setSyncing] = useState(false);
   const [writing, setWriting] = useState(false);
 
   const labels = payload.column_labels || {};
@@ -62,25 +59,11 @@ export function ReportCard({
   }, [payload.data, labels]);
 
   async function onChartChange(next: ChartType) {
+    // Đổi loại chart ngay trên client — không gọi API (tránh backend ghi đè)
     setChartType(next);
-    if (!payload.data?.length) return;
-    setSyncing(true);
-    try {
-      const updated = await postChat({
-        domainId,
-        query: chartQueryForType(next),
-        history: [],
-        reuseData: payload.data,
-      });
-      if (updated.status === "success" && updated.data?.length) {
-        updateMessage(messageId, {
-          payload: { ...payload, ...updated, data: updated.data },
-        });
-        setChartType(updated.chart_type || next);
-      }
-    } finally {
-      setSyncing(false);
-    }
+    updateMessage(messageId, {
+      payload: { ...payload, chart_type: next },
+    });
   }
 
   async function writeArticle() {
@@ -156,7 +139,6 @@ export function ReportCard({
               Biểu đồ
               <select
                 value={chartType}
-                disabled={syncing}
                 onChange={(e) => void onChartChange(e.target.value as ChartType)}
                 className="rounded-lg border border-line bg-foam px-2 py-1.5 text-sm text-ink outline-none focus:border-teal"
               >
@@ -167,9 +149,6 @@ export function ReportCard({
                 ))}
               </select>
             </label>
-            {syncing && (
-              <RefreshCw className="h-4 w-4 animate-spin text-teal" />
-            )}
           </div>
         )}
       </div>

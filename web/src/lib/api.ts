@@ -6,16 +6,25 @@ import type {
   HistoryMessage,
 } from "./types";
 
-const API_BASE = (
-  process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000"
-).replace(/\/$/, "");
+/**
+ * Mặc định: gọi cùng origin (`/api/...`) — Next.js rewrite tới FastAPI.
+ * Chỉ set NEXT_PUBLIC_API_BASE khi muốn gọi API trực tiếp (bỏ qua proxy).
+ */
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
+
+function apiUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${p}`;
+}
 
 async function parseError(res: Response): Promise<string> {
   try {
     const data = await res.json();
     if (typeof data?.detail === "string") return data.detail;
     if (Array.isArray(data?.detail)) {
-      return data.detail.map((d: { msg?: string }) => d.msg || JSON.stringify(d)).join("; ");
+      return data.detail
+        .map((d: { msg?: string }) => d.msg || JSON.stringify(d))
+        .join("; ");
     }
     return JSON.stringify(data);
   } catch {
@@ -25,7 +34,7 @@ async function parseError(res: Response): Promise<string> {
 
 export async function fetchDomains(): Promise<DomainItem[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/domains`, { cache: "no-store" });
+    const res = await fetch(apiUrl("/api/v1/domains"), { cache: "no-store" });
     if (!res.ok) throw new Error(await parseError(res));
     const data = await res.json();
     return (data.domains || []) as DomainItem[];
@@ -40,7 +49,7 @@ export async function fetchDomains(): Promise<DomainItem[]> {
 
 export async function fetchDomainsHealth(): Promise<DomainsHealth | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/health/domains`, {
+    const res = await fetch(apiUrl("/api/v1/health/domains"), {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -56,7 +65,7 @@ export async function postChat(params: {
   history: HistoryMessage[];
   reuseData?: Record<string, unknown>[] | null;
 }): Promise<ChatResponse> {
-  const res = await fetch(`${API_BASE}/api/v1/chat`, {
+  const res = await fetch(apiUrl("/api/v1/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -90,7 +99,7 @@ export async function postArticle(params: {
   data: Record<string, unknown>[];
   insightSummary?: string;
 }): Promise<ArticleResponse> {
-  const res = await fetch(`${API_BASE}/api/v1/generate_article`, {
+  const res = await fetch(apiUrl("/api/v1/generate_article"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

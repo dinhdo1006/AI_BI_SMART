@@ -2,30 +2,41 @@
 
 Giao diện Conversational BI thay Streamlit.
 
+**Port UI mặc định: `3010`**
+
+## Kiến trúc gọi API
+
+Trình duyệt gọi **cùng origin** (`/api/...`). Next.js **rewrite** sang FastAPI
+(`BACKEND_URL`, mặc định `http://127.0.0.1:2004`). Không cần CORS, không cần
+IP LAN trong `NEXT_PUBLIC_*`.
+
 ## Chạy
 
-1. Backend FastAPI (thư mục gốc repo):
+1. Backend:
 
 ```bash
-uvicorn main:app --reload --port 8000
+uvicorn main:app --host 0.0.0.0 --port 2004
 ```
 
 2. Frontend:
 
 ```bash
 cd web
+# .env.local — chỉ cần URL nội bộ server → FastAPI
+echo "BACKEND_URL=http://127.0.0.1:2004" > .env.local
+# Không set NEXT_PUBLIC_API_BASE (để trống = dùng proxy)
+
 npm install
-npm run dev
+npm run build
+npm run start
 ```
 
-Mở http://localhost:3000
+Mở http://10.10.6.134:3010 (hoặc IP máy bạn).
 
-## Cấu hình
+## Cấu hình tùy chọn
 
-File `.env.local`:
-
-```
-NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000
-```
-
-CORS backend đọc biến `CORS_ORIGINS` (mặc định cho phép localhost:3000).
+| Biến | File | Ý nghĩa |
+|------|------|---------|
+| `BACKEND_URL` | `web/.env.local` | FastAPI nội bộ cho rewrite (build-time) |
+| `NEXT_PUBLIC_API_BASE` | `web/.env.local` | Chỉ khi muốn gọi API trực tiếp, bỏ proxy |
+| `CORS_ORIGINS` | `.env` gốc | Chỉ cần nếu dùng `NEXT_PUBLIC_API_BASE` |
