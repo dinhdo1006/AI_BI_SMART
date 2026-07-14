@@ -44,6 +44,35 @@ _INSIGHT_EMPTY_DATA = (
     "(ví dụ: khoảng thời gian chưa có số liệu)."
 )
 
+# Cột ngày trong kết quả → suy ra data_as_of (không query DB thêm)
+_DATE_COL_HINTS = ("ngay", "date", "time", "updated", "surveyed", "start")
+
+
+def _infer_data_as_of(rows: list[dict[str, Any]]) -> str | None:
+    """Lấy ngày mới nhất trong kết quả (YYYY-MM-DD). Không có cột ngày → None."""
+    if not rows:
+        return None
+    keys = [
+        k
+        for k in rows[0]
+        if any(h in str(k).lower() for h in _DATE_COL_HINTS)
+    ]
+    if not keys:
+        return None
+    best: str | None = None
+    for row in rows:
+        for k in keys:
+            raw = row.get(k)
+            if raw is None:
+                continue
+            s = str(raw).strip()
+            if len(s) < 10 or s[4] != "-":
+                continue
+            day = s[:10]
+            if best is None or day > best:
+                best = day
+    return best
+
 
 class HistoryMessage(BaseModel):
     """Một tin nhắn trong lịch sử chat (dùng cho ngữ cảnh LLM)."""
@@ -103,6 +132,10 @@ class ChatResponse(BaseModel):
     error_detail: str | None = None
     # Router intent (sql/viz/followup/chitchat/oos)
     intent: str | None = None
+    # Nguồn SQL: fast_path | llm | repair | cache | …
+    sql_source: str | None = None
+    # Ngày mới nhất trong kết quả (YYYY-MM-DD), suy từ data — không query thêm
+    data_as_of: str | None = None
 
 
 class ArticleRequest(BaseModel):
@@ -313,6 +346,8 @@ def chat(request: ChatRequest) -> ChatResponse:
             viz_only=True,
             column_labels=labels,
             intent=intent,
+            sql_source=sql_source,
+            data_as_of=_infer_data_as_of(request.reuse_data),
         )
         _log_out("success", row_count=len(request.reuse_data), viz_only=True)
         return resp
@@ -320,10 +355,10 @@ def chat(request: ChatRequest) -> ChatResponse:
     # --- Cache: câu hỏi đã hỏi trước đó → trả ngay, bỏ qua LLM + DB ---
     cached = get_cached_response(request.domain_id, request.query)
     if cached:
-        sql_source = "cache"
+        sql_source = str(cached.get("sql_source") or "cache")
         sql = str(cached.get("sql_query") or "")
         row_count = int(cached.get("row_count") or 0)
-        resp = ChatResponse(**cached)
+        resp = ChatResponse(**{**cached, "from_cache": True, "sql_source": sql_source})
         _log_out("success", row_count=row_count, from_cache=True)
         return resp
 
@@ -376,6 +411,7 @@ def chat(request: ChatRequest) -> ChatResponse:
                 viz_only=False,
                 column_labels=labels,
                 intent=intent,
+                sql_source=sql_source,
             )
 
         if intent == INTENT_OOS:
@@ -394,6 +430,7 @@ def chat(request: ChatRequest) -> ChatResponse:
                 viz_only=False,
                 column_labels=labels,
                 intent=intent,
+                sql_source=sql_source,
             )
 
         if intent == INTENT_VIZ and request.reuse_data:
@@ -418,6 +455,8 @@ def chat(request: ChatRequest) -> ChatResponse:
                 viz_only=True,
                 column_labels=labels,
                 intent=intent,
+                sql_source=sql_source,
+                data_as_of=_infer_data_as_of(request.reuse_data),
             )
 
         # followup / sql / viz-without-data → SQLCoder
@@ -494,6 +533,7 @@ def chat(request: ChatRequest) -> ChatResponse:
                     failed_sql=sql,
                     error_detail=str(last_db_error),
                     intent=intent,
+                    sql_source=sql_source,
                 )
 
     # Kịch bản B: truy vấn OK nhưng không có dữ liệu
@@ -511,6 +551,7 @@ def chat(request: ChatRequest) -> ChatResponse:
             viz_only=False,
             column_labels=labels,
             intent=intent,
+            sql_source=sql_source,
         )
         set_cached_response(
             request.domain_id, request.query, resp.model_dump(mode="json")
@@ -549,6 +590,8 @@ def chat(request: ChatRequest) -> ChatResponse:
         viz_only=False,
         column_labels=labels,
         intent=intent,
+        sql_source=sql_source,
+        data_as_of=_infer_data_as_of(rows),
     )
     set_cached_response(
         request.domain_id, request.query, resp.model_dump(mode="json")

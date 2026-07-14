@@ -27,6 +27,39 @@ const CHART_OPTIONS: { value: ChartType; label: string }[] = [
   { value: "table", label: "Bảng" },
 ];
 
+/** Badge tin cậy từ sql_source — chỉ hiện khi có SQL thật. */
+function confidenceBadge(source: string | null | undefined): {
+  label: string;
+  className: string;
+} | null {
+  if (!source) return null;
+  if (source === "fast_path" || source === "fast_path_fallback") {
+    return {
+      label: "Tin cậy cao",
+      className: "bg-teal/10 text-teal",
+    };
+  }
+  if (source === "llm" || source === "llm_followup") {
+    return {
+      label: "Ước tính — kiểm tra SQL",
+      className: "bg-copper-soft/70 text-copper",
+    };
+  }
+  if (source === "repair") {
+    return {
+      label: "Đã sửa — cần xác minh",
+      className: "bg-copper-soft text-copper font-semibold",
+    };
+  }
+  return null;
+}
+
+function formatDataAsOf(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 export function ReportCard({
   payload,
   reportIndex,
@@ -48,6 +81,7 @@ export function ReportCard({
 
   const labels = payload.column_labels || {};
   const hasData = (payload.data?.length || 0) > 0 && payload.status === "success";
+  const confidence = confidenceBadge(payload.sql_source);
   const renamed = useMemo(() => {
     return (payload.data || []).map((row) => {
       const out: Record<string, unknown> = {};
@@ -116,20 +150,30 @@ export function ReportCard({
             {payload.query}
           </h3>
           <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-ink-soft/70">
+            {confidence && (
+              <span
+                className={cn(
+                  "rounded-md px-2 py-0.5 font-medium",
+                  confidence.className,
+                )}
+              >
+                {confidence.label}
+              </span>
+            )}
             {payload.from_cache && (
               <span className="rounded-md bg-mist px-2 py-0.5">cache</span>
             )}
             {payload.viz_only && (
               <span className="rounded-md bg-mist px-2 py-0.5">viz only</span>
             )}
-            {payload.intent && (
-              <span className="rounded-md bg-mist px-2 py-0.5">
-                {payload.intent}
-              </span>
-            )}
             <span className="rounded-md bg-mist px-2 py-0.5">
               {payload.row_count} dòng
             </span>
+            {payload.data_as_of && (
+              <span className="rounded-md bg-mist px-2 py-0.5">
+                Dữ liệu tới {formatDataAsOf(payload.data_as_of)}
+              </span>
+            )}
           </div>
         </div>
 

@@ -22,6 +22,10 @@ export type ChatResponse = {
   failed_sql?: string | null;
   error_detail?: string | null;
   intent?: string | null;
+  /** Nguồn SQL: fast_path | llm | repair | cache | … */
+  sql_source?: string | null;
+  /** Ngày mới nhất trong kết quả (YYYY-MM-DD) */
+  data_as_of?: string | null;
   error?: string;
 };
 

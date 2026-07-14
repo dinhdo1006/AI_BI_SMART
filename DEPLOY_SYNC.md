@@ -32,21 +32,73 @@
 
 ---
 
-## Lệnh trên server (sau khi copy file)
+## Quy trình deploy chuẩn (đã kiểm chứng 2026-07-13)
+
+### ⚠️ Lưu ý quan trọng về server
+
+| Vấn đề | Chi tiết |
+|--------|---------|
+| **venv đúng** | Dùng `.venv` trong project, KHÔNG phải `venv` hay `~/Downloads/venv` |
+| **Không có pm2** | Dùng `nohup ... &` để chạy background |
+| **Không sửa code trực tiếp trên server** | Server chỉ `git pull`, mọi sửa đổi làm trên máy dev rồi push |
+| **Conflict khi pull** | Chạy `git checkout -- <file>` hoặc `git reset --hard HEAD` trước khi pull |
+
+### Bước 1 — Máy dev: commit + push
+
+```bash
+cd d:\AI_BI_SMART
+git add <các file đã sửa>
+git commit -m "mô tả thay đổi"
+git push origin main
+```
+
+### Bước 2 — Server: pull code
 
 ```bash
 cd ~/Downloads/AI_BI_SMART
-source venv/bin/activate   # hoặc .venv
 
-# 1. Copy 4 file từ máy dev (git pull / scp / rsync)
+# Nếu bị conflict
+git reset --hard HEAD
 
-# 2. Tạo lại database mock (BẮT BUỘC — xóa DB cũ)
-python seed_db.py
+git pull origin main
+```
 
-# 3. Restart API + Streamlit
-# Ctrl+C các process cũ, rồi:
-uvicorn main:app --host 0.0.0.0 --port 2004
-python -m streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501
+### Bước 3 — Server: restart FastAPI
+
+```bash
+cd ~/Downloads/AI_BI_SMART
+source .venv/bin/activate   # ← ĐÚNG venv, không dùng venv khác
+
+# Kill process cũ nếu có
+pkill -f "uvicorn main:app" 2>/dev/null; sleep 1
+
+# Start lại
+nohup uvicorn main:app --host 0.0.0.0 --port 2004 > ~/uvicorn_bi.log 2>&1 &
+
+# Kiểm tra
+sleep 3 && curl http://127.0.0.1:2004/health
+# Kết quả mong đợi: {"status":"ok","schema_rag_enabled":true}
+```
+
+### Bước 4 — Server: rebuild + restart Next.js (chỉ khi có sửa web/)
+
+```bash
+cd ~/Downloads/AI_BI_SMART/web
+npm install   # chỉ cần nếu package.json thay đổi
+npm run build
+
+# Tìm và kill process Next.js cũ
+pkill -f "next start" 2>/dev/null; sleep 1
+
+# Start lại
+nohup npm run start > ~/nextjs_bi.log 2>&1 &
+```
+
+### Kiểm tra log khi có lỗi
+
+```bash
+tail -f ~/uvicorn_bi.log   # log FastAPI
+tail -f ~/nextjs_bi.log    # log Next.js
 ```
 
 ---
