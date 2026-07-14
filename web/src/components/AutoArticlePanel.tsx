@@ -3,15 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { FileText, Play, RefreshCw, X } from "lucide-react";
+import { Download, FileText, Play, RefreshCw, X } from "lucide-react";
 import {
+  exportWord,
   fetchAutoArticleScheduler,
   fetchAutoArticles,
   runAutoArticleChecks,
   runAutoArticleJob,
 } from "@/lib/api";
+import { downloadText } from "@/lib/format";
 import type { AutoArticle, AutoArticleSchedulerStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+function slugFilename(article: AutoArticle, ext: string): string {
+  const base = `${article.template_id || "bai"}-${article.data_date || "ky"}`
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-");
+  return `${base}.${ext}`;
+}
 
 export function AutoArticlePanel({ domainId }: { domainId: string }) {
   const [open, setOpen] = useState(false);
@@ -20,6 +29,7 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
     useState<AutoArticleSchedulerStatus | null>(null);
   const [selected, setSelected] = useState<AutoArticle | null>(null);
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -83,6 +93,32 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
       setError(e instanceof Error ? e.message : "Viết bài thất bại");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function downloadMarkdown(article: AutoArticle) {
+    downloadText(
+      article.article_markdown,
+      slugFilename(article, "md"),
+      "text/markdown;charset=utf-8",
+    );
+  }
+
+  async function downloadWord(article: AutoArticle) {
+    setExporting(true);
+    setError(null);
+    try {
+      await exportWord({
+        domainId: article.domain_id || domainId,
+        query: article.question,
+        insight: "",
+        data: [],
+        articleMarkdown: article.article_markdown,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Xuất Word thất bại");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -156,7 +192,7 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
             </p>
           )}
 
-          <ul className="max-h-48 space-y-1.5 overflow-y-auto scrollbar-thin">
+          <ul className="max-h-56 space-y-1.5 overflow-y-auto scrollbar-thin">
             {articles.length === 0 && (
               <li className="text-[12px] text-ink-soft/60">
                 Chưa có bài tự động. Bật ARTICLE_SCHEDULE_ENABLED hoặc bấm
@@ -186,9 +222,9 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
-              <div>
+          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-xl">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+              <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-teal">
                   {selected.template_name}
                 </p>
@@ -199,16 +235,38 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
                   Thời gian tạo báo cáo: {selected.generated_at} · kỳ{" "}
                   {selected.data_date}
                 </p>
+                <p className="mt-1 text-[10px] text-ink-soft/60">
+                  Đã lưu trên server. Tải về máy bằng Markdown hoặc Word.
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-lg border border-line p-1.5 text-ink-soft hover:text-ink"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => downloadMarkdown(selected)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-line bg-foam px-2.5 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Markdown
+                </button>
+                <button
+                  type="button"
+                  disabled={exporting}
+                  onClick={() => void downloadWord(selected)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-teal/30 bg-teal/10 px-2.5 py-1.5 text-xs font-semibold text-teal disabled:opacity-50"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {exporting ? "Đang xuất…" : "Word"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="rounded-lg border border-line p-1.5 text-ink-soft hover:text-ink"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <div className="prose-article overflow-y-auto px-5 py-4 scrollbar-thin">
+            <div className="prose-article overflow-y-auto px-6 py-5 scrollbar-thin">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {selected.article_markdown}
               </ReactMarkdown>

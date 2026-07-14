@@ -97,7 +97,7 @@ export function Workspace() {
         initial={{ opacity: 0, x: -16 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-        className="hidden w-[300px] shrink-0 lg:block"
+        className="hidden w-[380px] shrink-0 lg:block"
       >
         <Sidebar />
       </motion.aside>
