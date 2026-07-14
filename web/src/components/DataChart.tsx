@@ -561,7 +561,7 @@ function buildSeries({
         smooth: true,
         symbol: "circle",
         symbolSize: 6,
-        showSymbol: false,
+        showSymbol: showLabels || chartData.length <= 24,
         emphasis: { focus: "series" as const },
         lineStyle: { width: 2.4, color },
         itemStyle: { color },
@@ -581,6 +581,16 @@ function buildSeries({
                 },
               }
             : undefined,
+        label: showLabels
+          ? {
+              show: true,
+              position: "top" as const,
+              fontSize: 10,
+              color: "#5b6b73",
+              formatter: (p: CallbackDataParams) =>
+                formatNumber(paramValue(p), y),
+            }
+          : undefined,
       };
     });
   }

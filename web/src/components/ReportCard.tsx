@@ -84,6 +84,9 @@ export function ReportCard({
   const [chartType, setChartType] = useState<ChartType>(
     payload.chart_type || "bar",
   );
+  const [chartReady, setChartReady] = useState(
+    (payload.chart_type || "bar") === "table",
+  );
   const [writing, setWriting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savingDash, setSavingDash] = useState(false);
@@ -105,6 +108,23 @@ export function ReportCard({
     [chartType, payload.data, hasData],
   );
 
+  // Viz-only không sinh insight mới — kế thừa từ báo cáo trước có nội dung
+  const resolvedInsight = useMemo(() => {
+    if (payload.insight) return payload.insight;
+    if (!payload.viz_only) return "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (
+        m.id !== messageId &&
+        m.role === "assistant" &&
+        m.payload?.insight
+      ) {
+        return m.payload.insight;
+      }
+    }
+    return "";
+  }, [payload.insight, payload.viz_only, messages, messageId]);
+
   const renamed = useMemo(() => {
     return (payload.data || []).map((row) => {
       const out: Record<string, unknown> = {};
@@ -117,10 +137,17 @@ export function ReportCard({
 
   const onChartReady = useCallback((getPng: () => string | null) => {
     getPngRef.current = getPng;
+    setChartReady(true);
   }, []);
 
   async function onChartChange(next: ChartType) {
     setChartType(next);
+    if (next !== "table") {
+      setChartReady(false);
+      getPngRef.current = null;
+    } else {
+      setChartReady(true);
+    }
     updateMessage(messageId, {
       payload: { ...payload, chart_type: next },
     });
@@ -145,7 +172,7 @@ export function ReportCard({
         domainId,
         question: payload.query,
         data: payload.data,
-        insightSummary: payload.insight || "",
+        insightSummary: resolvedInsight,
       });
       // Ghép ảnh chart phía client — không gửi API
       if (!article.error && chartImage) {
@@ -159,17 +186,22 @@ export function ReportCard({
 
   async function downloadWord() {
     if (!payload.data?.length) return;
+    if (chartType !== "table" && !chartReady) return;
     setExporting(true);
     try {
       const chartImage = getPngRef.current?.() || undefined;
       await exportWord({
         domainId,
         query: payload.query,
-        insight: payload.insight || "",
+        insight: resolvedInsight,
         data: payload.data,
         articleMarkdown: msg?.article?.article_markdown,
         chartImageBase64: chartImage,
       });
+    } catch (err) {
+      alert(
+        `Không thể xuất Word: ${err instanceof Error ? err.message : "Lỗi không rõ"}`,
+      );
     } finally {
       setExporting(false);
     }
@@ -304,7 +336,9 @@ export function ReportCard({
       </div>
 
       <div className="space-y-5 p-5">
-        {payload.insight && <InsightBlock text={payload.insight} />}
+        {(resolvedInsight || payload.insight) && (
+          <InsightBlock text={resolvedInsight || payload.insight} />
+        )}
 
         {hasData && <KpiRow data={payload.data} labels={labels} />}
 
@@ -382,12 +416,21 @@ export function ReportCard({
             </button>
             <button
               type="button"
-              disabled={exporting}
+              disabled={exporting || (chartType !== "table" && !chartReady)}
               onClick={() => void downloadWord()}
+              title={
+                chartType !== "table" && !chartReady
+                  ? "Đang chuẩn bị biểu đồ…"
+                  : undefined
+              }
               className="inline-flex items-center gap-2 rounded-xl border border-line bg-foam px-3 py-2 text-sm font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink disabled:opacity-50"
             >
               <FileText className="h-4 w-4" />
-              {exporting ? "Word…" : "Word"}
+              {exporting
+                ? "Word…"
+                : chartType !== "table" && !chartReady
+                  ? "Word…"
+                  : "Word"}
             </button>
             <button
               type="button"

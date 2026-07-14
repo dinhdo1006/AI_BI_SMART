@@ -201,11 +201,23 @@ def create_word_report_api(
             if chart_embedded:
                 cap = doc.add_paragraph("Biểu đồ phân tích")
                 cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                note = doc.add_paragraph(
+                    "Số liệu chi tiết xem tại bảng bên dưới."
+                )
+                note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                for run in note.runs:
+                    run.italic = True
+                    run.font.size = Pt(9)
         for line in _clean_insight_text(parts["body"] or article_markdown).splitlines():
             if line.strip():
                 doc.add_paragraph(line.strip())
         if dataframe is not None and not dataframe.empty:
-            doc.add_heading("Bảng số liệu", level=2)
+            table_title = (
+                "Bảng số liệu chi tiết (tương ứng biểu đồ trên)"
+                if chart_embedded
+                else "Bảng số liệu"
+            )
+            doc.add_heading(table_title, level=2)
             _add_dataframe_table(doc, dataframe)
         buffer = io.BytesIO()
         doc.save(buffer)
@@ -231,7 +243,15 @@ def create_word_report_api(
     if chart_image_base64:
         doc.add_heading("Phần 2 — Biểu đồ trực quan", level=2)
         chart_embedded = embed_base64_png(doc, chart_image_base64)
-        table_heading = "Phần 3 — Bảng số liệu"
+        if chart_embedded:
+            note = doc.add_paragraph(
+                "Số liệu chi tiết xem tại bảng bên dưới."
+            )
+            note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in note.runs:
+                run.italic = True
+                run.font.size = Pt(9)
+        table_heading = "Phần 3 — Số liệu chi tiết (tương ứng biểu đồ trên)"
     else:
         table_heading = "Phần 2 — Bảng số liệu"
     doc.add_heading(table_heading, level=2)
