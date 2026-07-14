@@ -10,7 +10,7 @@ from core.alert_metrics import (
     format_alert_message,
     get_metric,
 )
-from core.alert_store import add_event, list_rules, mark_rule_checked
+from core.alert_store import add_event, get_rule, list_rules, mark_rule_checked
 from core.config_loader import load_domain_config
 from core.db_executor import DbQueryError, execute_query
 
@@ -31,6 +31,9 @@ def _read_metric_value(rows: list[dict[str, Any]]) -> tuple[float | None, str | 
 def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
     """
     Chạy 1 rule. Trả về status: ok | triggered | error | skipped.
+
+    Event chỉ ghi khi có rising edge (chưa triggered → triggered) để
+    scheduler không spam khi metric vẫn vượt ngưỡng.
     """
     if not rule.get("enabled", True):
         return {
@@ -39,6 +42,10 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
             "triggered": False,
             "message": "Rule đang tắt",
         }
+
+    # Đọc trạng thái mới nhất từ DB (rising edge)
+    fresh = get_rule(rule["id"]) or rule
+    was_triggered = bool(fresh.get("last_triggered"))
 
     domain_id = rule["domain_id"]
     metric = get_metric(domain_id, rule["metric_key"])
@@ -49,6 +56,8 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
             "triggered": False,
             "message": f"Metric không hỗ trợ: {rule['metric_key']}",
         }
+
+    kind = str(metric.get("kind") or "threshold")
 
     try:
         cfg = load_domain_config(domain_id)
@@ -88,6 +97,7 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
         threshold=float(rule["threshold"]),
         value=value,
         target=rule.get("target") or label,
+        kind=kind,
     )
 
     result: dict[str, Any] = {
@@ -95,6 +105,7 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
         "rule_name": rule["name"],
         "domain_id": domain_id,
         "metric_key": rule["metric_key"],
+        "metric_kind": kind,
         "value": value,
         "threshold": float(rule["threshold"]),
         "operator": rule["operator"],
@@ -102,17 +113,26 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
         "triggered": triggered,
         "status": "triggered" if triggered else "ok",
         "message": msg,
+        "new_event": False,
     }
 
-    if triggered:
+    # Rising edge: chỉ tạo event khi vừa chuyển sang trạng thái kích hoạt
+    if triggered and not was_triggered:
         event = add_event(
             rule_id=rule["id"],
             domain_id=domain_id,
             value=value,
             message=msg,
-            payload={"label": label, "metric_label": metric["label"]},
+            payload={
+                "label": label,
+                "metric_label": metric["label"],
+                "kind": kind,
+            },
         )
         result["event_id"] = event["id"]
+        result["new_event"] = True
+    elif triggered and was_triggered:
+        result["message"] = msg + " (đã cảnh báo trước — không tạo event mới)"
 
     return result
 
@@ -122,10 +142,12 @@ def run_alerts(domain_id: str | None = None) -> dict[str, Any]:
     rules = list_rules(domain_id)
     results = [evaluate_rule(r) for r in rules]
     triggered = [r for r in results if r.get("triggered")]
+    new_events = [r for r in results if r.get("new_event")]
     errors = [r for r in results if r.get("status") == "error"]
     return {
         "checked": len(results),
         "triggered_count": len(triggered),
+        "new_event_count": len(new_events),
         "error_count": len(errors),
         "results": results,
         "triggered": triggered,

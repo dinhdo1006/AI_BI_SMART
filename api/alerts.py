@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from core.alert_engine import evaluate_rule, run_alerts
 from core.alert_metrics import get_metric, list_metrics, sanitize_target
+from core.alert_scheduler import get_scheduler_status
 from core.alert_store import (
     create_rule,
     delete_rule,
@@ -101,6 +102,12 @@ def remove_alert_rule(rule_id: str) -> dict[str, bool]:
     if not delete_rule(rule_id):
         raise HTTPException(status_code=404, detail="Rule không tồn tại")
     return {"ok": True}
+
+
+@router.get("/scheduler")
+def get_alert_scheduler() -> dict[str, Any]:
+    """Trạng thái scheduler nền (ALERT_SCHEDULE_ENABLED)."""
+    return get_scheduler_status()
 
 
 @router.post("/run")

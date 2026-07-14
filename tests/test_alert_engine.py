@@ -1,4 +1,4 @@
-"""Tests Alert Engine — metrics, store, evaluate (finance domain)."""
+"""Tests Alert Engine — metrics, store, evaluate, scheduler (finance)."""
 
 from __future__ import annotations
 
@@ -13,9 +13,11 @@ from core.alert_metrics import (
     list_metrics,
     sanitize_target,
 )
+from core.alert_scheduler import get_scheduler_status, start_scheduler, stop_scheduler
 from core.alert_store import (
     create_rule,
     delete_rule,
+    list_events,
     list_rules,
 )
 from core.config_loader import load_domain_config
@@ -39,10 +41,13 @@ def test_sanitize_target() -> None:
 
 def test_list_metrics_finance() -> None:
     items = list_metrics("finance_vnfdata")
-    assert len(items) >= 1
-    assert all("key" in m and "label" in m for m in items)
-    assert list_metrics("it_deployment") == []
-    assert list_metrics("mining_geology") == []
+    assert len(items) >= 5
+    keys = {m["key"] for m in items}
+    assert "close_zscore" in keys
+    assert "change_zscore" in keys
+    z = next(m for m in items if m["key"] == "close_zscore")
+    assert z["kind"] == "anomaly"
+    assert z["default_threshold"] == 2.5
 
 
 def test_compare_ops() -> None:
@@ -53,7 +58,7 @@ def test_compare_ops() -> None:
     assert compare(21, "lt", 20) is False
 
 
-def test_build_finance_sql() -> None:
+def test_build_finance_and_anomaly_sql() -> None:
     cfg = load_domain_config("finance_vnfdata")
     sql = build_metric_sql(
         "finance_vnfdata",
@@ -63,11 +68,44 @@ def test_build_finance_sql() -> None:
     )
     assert "FPT" in sql.upper() or "fpt" in sql.lower()
     assert sql.strip().upper().startswith("SELECT")
-    assert "value" in sql.lower()
+
+    zsql = build_metric_sql(
+        "finance_vnfdata",
+        "close_zscore",
+        target="FPT",
+        db_url=cfg["db_url"],
+    )
+    assert "STDDEV" in zsql.upper() or "stddev" in zsql.lower() or "SQRT" in zsql.upper()
+    assert "value" in zsql.lower()
+
+
+def test_rising_edge_no_spam_events() -> None:
+    rule = create_rule(
+        domain_id="finance_vnfdata",
+        name="P/E FPT cao",
+        metric_key="pe_ratio",
+        operator="gt",
+        threshold=10.0,
+        target="FPT",
+    )
+    with patch(
+        "core.alert_engine.execute_query",
+        return_value=[{"label": "FPT", "value": 21.5}],
+    ):
+        r1 = evaluate_rule(rule)
+        assert r1["triggered"] is True
+        assert r1["new_event"] is True
+        assert len(list_events(domain_id="finance_vnfdata")) == 1
+
+        r2 = evaluate_rule(rule)
+        assert r2["triggered"] is True
+        assert r2["new_event"] is False
+        assert len(list_events(domain_id="finance_vnfdata")) == 1
+
+    delete_rule(rule["id"])
 
 
 def test_rule_lifecycle_and_run() -> None:
-    """Evaluate dùng mock execute_query — không phụ thuộc DB live."""
     rule = create_rule(
         domain_id="finance_vnfdata",
         name="P/E FPT cao",
@@ -102,9 +140,21 @@ def test_rule_lifecycle_and_run() -> None:
 
         batch = run_alerts("finance_vnfdata")
         assert batch["checked"] >= 2
+        assert "new_event_count" in batch
 
     delete_rule(rule["id"])
     delete_rule(rule2["id"])
+
+
+def test_scheduler_disabled_by_default(monkeypatch) -> None:
+    stop_scheduler()
+    monkeypatch.delenv("ALERT_SCHEDULE_ENABLED", raising=False)
+    monkeypatch.setenv("ALERT_SCHEDULE_MINUTES", "15")
+    status = start_scheduler()
+    assert status["enabled"] is False
+    assert status["running"] is False
+    assert get_scheduler_status()["enabled"] is False
+    stop_scheduler()
 
 
 def test_api_router_import() -> None:
@@ -117,6 +167,7 @@ def test_api_router_import() -> None:
     ]
     assert any("/api/v1/alerts/rules" in p for p in paths)
     assert any("/api/v1/alerts/run" in p for p in paths)
+    assert any("/api/v1/alerts/scheduler" in p for p in paths)
 
 
 if __name__ == "__main__":

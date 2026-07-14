@@ -4,6 +4,7 @@ import type {
   AlertOperator,
   AlertRule,
   AlertRunResult,
+  AlertSchedulerStatus,
   ArticleResponse,
   ChatResponse,
   DashboardPayload,
@@ -479,6 +480,18 @@ export async function runAlerts(
   });
   if (!res.ok) throw new Error(await parseError(res));
   return (await res.json()) as AlertRunResult;
+}
+
+export async function fetchAlertScheduler(): Promise<AlertSchedulerStatus | null> {
+  try {
+    const res = await fetch(apiUrl("/api/v1/alerts/scheduler"), {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AlertSchedulerStatus;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchAlertEvents(

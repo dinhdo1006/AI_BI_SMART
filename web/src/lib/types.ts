@@ -147,6 +147,9 @@ export type AlertMetric = {
   target_label: string;
   target_placeholder?: string;
   description?: string;
+  kind?: "threshold" | "anomaly" | string;
+  default_threshold?: number | null;
+  default_operator?: AlertOperator;
 };
 
 export type AlertRule = {
@@ -181,16 +184,31 @@ export type AlertEvent = {
 export type AlertRunResult = {
   checked: number;
   triggered_count: number;
+  new_event_count?: number;
   error_count: number;
   results: Array<{
     rule_id: string;
     rule_name?: string;
     status: string;
     triggered: boolean;
-    message: string;
-    value?: number;
+    message?: string;
+    new_event?: boolean;
   }>;
-  triggered: Array<Record<string, unknown>>;
+};
+
+export type AlertSchedulerStatus = {
+  enabled: boolean;
+  interval_minutes: number;
+  running: boolean;
+  last_run_at?: string | null;
+  last_result?: {
+    checked: number;
+    triggered_count: number;
+    new_event_count?: number;
+    error_count: number;
+  } | null;
+  last_error?: string | null;
+  thread_alive?: boolean;
 };
 
 export type ChatMessage = {

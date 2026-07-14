@@ -3,19 +3,32 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
 from api.alerts import router as alerts_router
+from core.alert_scheduler import start_scheduler, stop_scheduler
 from core.auth import ApiKeyMiddleware, auth_enabled
 from core.schema_rag import is_schema_rag_enabled
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
+
 
 app = FastAPI(
     title="Multi-domain Conversational BI",
     description="Text-to-SQL cục bộ với Ollama — hỗ trợ SQLite/PostgreSQL + RAG Schema.",
-    version="1.3.0",
+    version="1.4.0",
+    lifespan=lifespan,
 )
 
 _cors_origins = [

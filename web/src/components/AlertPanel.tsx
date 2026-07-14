@@ -8,6 +8,7 @@ import {
   fetchAlertEvents,
   fetchAlertMetrics,
   fetchAlertRules,
+  fetchAlertScheduler,
   patchAlertRule,
   runAlerts,
 } from "@/lib/api";
@@ -16,6 +17,7 @@ import type {
   AlertMetric,
   AlertOperator,
   AlertRule,
+  AlertSchedulerStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -27,11 +29,35 @@ const OPS: { value: AlertOperator; label: string }[] = [
   { value: "eq", label: "=" },
 ];
 
+function applyMetricDefaults(
+  m: AlertMetric,
+  setters: {
+    setTarget: (v: string) => void;
+    setName: (fn: (prev: string) => string) => void;
+    setOperator: (op: AlertOperator) => void;
+    setThreshold: (v: string) => void;
+  },
+) {
+  setters.setTarget(m.target_placeholder || "");
+  setters.setName((prev) =>
+    prev.startsWith("Alert ") || !prev ? `Alert ${m.label}` : prev,
+  );
+  if (m.default_operator) setters.setOperator(m.default_operator);
+  if (m.default_threshold != null) {
+    setters.setThreshold(String(m.default_threshold));
+  } else if (m.kind === "anomaly") {
+    setters.setThreshold("2.5");
+  }
+}
+
 export function AlertPanel({ domainId }: { domainId: string }) {
   const [open, setOpen] = useState(false);
   const [metrics, setMetrics] = useState<AlertMetric[]>([]);
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [events, setEvents] = useState<AlertEvent[]>([]);
+  const [scheduler, setScheduler] = useState<AlertSchedulerStatus | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,23 +77,29 @@ export function AlertPanel({ domainId }: { domainId: string }) {
   const reload = useCallback(async () => {
     setError(null);
     try {
-      const [m, r, e] = await Promise.all([
+      const [m, r, e, s] = await Promise.all([
         fetchAlertMetrics(domainId),
         fetchAlertRules(domainId),
         fetchAlertEvents(domainId, 12),
+        fetchAlertScheduler(),
       ]);
       setMetrics(m);
       setRules(r);
       setEvents(e);
+      setScheduler(s);
       if (m.length && !metricKey) {
         setMetricKey(m[0].key);
-        setTarget(m[0].target_placeholder || "");
-        if (!name) setName(`Alert ${m[0].label}`);
+        applyMetricDefaults(m[0], {
+          setTarget,
+          setName,
+          setOperator,
+          setThreshold,
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không tải được alerts");
     }
-  }, [domainId, metricKey, name]);
+  }, [domainId, metricKey]);
 
   useEffect(() => {
     setOpen(false);
@@ -107,7 +139,10 @@ export function AlertPanel({ domainId }: { domainId: string }) {
     try {
       const result = await runAlerts(domainId);
       setRunNote(
-        `Đã kiểm tra ${result.checked} rule · ${result.triggered_count} cảnh báo` +
+        `Đã kiểm tra ${result.checked} rule · ${result.triggered_count} vượt ngưỡng` +
+          (result.new_event_count != null
+            ? ` · ${result.new_event_count} event mới`
+            : "") +
           (result.error_count ? ` · ${result.error_count} lỗi` : ""),
       );
       await reload();
@@ -143,6 +178,20 @@ export function AlertPanel({ domainId }: { domainId: string }) {
 
       {open && (
         <div className="space-y-3 border-t border-line px-3 py-3">
+          {scheduler && (
+            <p className="rounded-lg bg-mist/70 px-2 py-1.5 text-[11px] text-ink-soft">
+              {scheduler.enabled && scheduler.running
+                ? `Tự chạy mỗi ${scheduler.interval_minutes} phút`
+                : "Scheduler tắt — chỉ kiểm tra tay"}
+              {scheduler.last_run_at
+                ? ` · lần gần nhất ${new Date(scheduler.last_run_at).toLocaleTimeString("vi-VN")}`
+                : ""}
+              {scheduler.last_error
+                ? ` · lỗi: ${scheduler.last_error}`
+                : ""}
+            </p>
+          )}
+
           {error && (
             <p className="rounded-lg bg-copper-soft/50 px-2 py-1.5 text-[11px] text-copper">
               {error}
@@ -171,23 +220,29 @@ export function AlertPanel({ domainId }: { domainId: string }) {
                 setMetricKey(key);
                 const m = metrics.find((x) => x.key === key);
                 if (m) {
-                  setTarget(m.target_placeholder || "");
-                  setName((prev) =>
-                    prev.startsWith("Alert ") || !prev
-                      ? `Alert ${m.label}`
-                      : prev,
-                  );
+                  applyMetricDefaults(m, {
+                    setTarget,
+                    setName,
+                    setOperator,
+                    setThreshold,
+                  });
                 }
               }}
               className="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-[12px] outline-none"
             >
               {metrics.map((m) => (
                 <option key={m.key} value={m.key}>
+                  {m.kind === "anomaly" ? "⚡ " : ""}
                   {m.label}
                   {m.unit ? ` (${m.unit})` : ""}
                 </option>
               ))}
             </select>
+            {selectedMetric?.description && (
+              <p className="text-[10px] leading-snug text-ink-soft/65">
+                {selectedMetric.description}
+              </p>
+            )}
             {selectedMetric?.needs_target && (
               <input
                 value={target}
@@ -244,7 +299,7 @@ export function AlertPanel({ domainId }: { domainId: string }) {
           <ul className="max-h-40 space-y-1.5 overflow-y-auto scrollbar-thin">
             {rules.length === 0 && (
               <li className="text-[11px] text-ink-soft/60">
-                Chưa có rule — thêm để hệ thống tự giám sát ngưỡng.
+                Chưa có rule — thêm để hệ thống tự giám sát ngưỡng / anomaly.
               </li>
             )}
             {rules.map((r) => (
