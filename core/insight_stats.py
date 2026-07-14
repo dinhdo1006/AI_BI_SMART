@@ -199,14 +199,36 @@ def _compute_top_bottom(
     }
 
 
+def _pick_period_freq(work: pd.DataFrame) -> tuple[str, str]:
+    """
+    Chọn tần suất so sánh kỳ dựa trên độ dài chuỗi thời gian.
+    MoM cho chuỗi ngắn; QoQ/YoY khi span đủ dài.
+    Returns: (pandas period code, mode label) — mode in MoM|QoQ|YoY|half_split.
+    """
+    span_days = int((work["_dt"].iloc[-1] - work["_dt"].iloc[0]).days)
+    n_month = work["_dt"].dt.to_period("M").nunique()
+    n_quarter = work["_dt"].dt.to_period("Q").nunique()
+    n_year = work["_dt"].dt.to_period("Y").nunique()
+
+    if n_month >= 2 and span_days < 100:
+        return "M", "MoM"
+    if n_quarter >= 2 and span_days >= 60:
+        return "Q", "QoQ"
+    if n_year >= 2:
+        return "Y", "YoY"
+    if n_month >= 2:
+        return "M", "MoM"
+    if n_quarter >= 2:
+        return "Q", "QoQ"
+    return "", "half_split"
+
+
 def _compute_period_comparison(
     df: pd.DataFrame,
     numeric: list[str],
     date_col: str | None,
 ) -> dict[str, Any] | None:
-    """
-    So sánh kỳ gần nhất vs kỳ trước (QoQ nếu có quý, ngược lại half-split YoY-like).
-    """
+    """So sánh kỳ gần nhất vs kỳ trước (MoM / QoQ / YoY / half_split)."""
     if not numeric or date_col is None or len(df) < 4:
         return None
     metric = numeric[0]
@@ -217,27 +239,20 @@ def _compute_period_comparison(
     if len(work) < 4:
         return None
 
-    # Ưu tiên so sánh theo quý nếu span >= 2 quý
-    work["_period"] = work["_dt"].dt.to_period("Q")
-    periods = work["_period"].unique()
-    mode = "QoQ"
-    if len(periods) < 2:
-        work["_period"] = work["_dt"].dt.to_period("Y")
-        periods = work["_period"].unique()
-        mode = "YoY"
-    if len(periods) < 2:
-        # Fallback: chia đôi theo thời gian
+    freq, mode = _pick_period_freq(work)
+    if mode == "half_split" or not freq:
         mid = len(work) // 2
-        first = work.iloc[:mid]["_m"]
-        second = work.iloc[mid:]["_m"]
-        prev_mean = float(first.mean())
-        curr_mean = float(second.mean())
-        mode = "half_split"
+        prev_mean = float(work.iloc[:mid]["_m"].mean())
+        curr_mean = float(work.iloc[mid:]["_m"].mean())
         prev_label = "nửa đầu"
         curr_label = "nửa sau"
+        mode = "half_split"
     else:
-        sorted_periods = sorted(periods)
-        prev_p, curr_p = sorted_periods[-2], sorted_periods[-1]
+        work["_period"] = work["_dt"].dt.to_period(freq)
+        periods = sorted(work["_period"].unique())
+        if len(periods) < 2:
+            return None
+        prev_p, curr_p = periods[-2], periods[-1]
         prev_mean = float(work.loc[work["_period"] == prev_p, "_m"].mean())
         curr_mean = float(work.loc[work["_period"] == curr_p, "_m"].mean())
         prev_label = str(prev_p)

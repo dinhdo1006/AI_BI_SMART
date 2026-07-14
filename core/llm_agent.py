@@ -351,6 +351,7 @@ def generate_insight(
     user_query: str,
     raw_json_data: list[dict[str, Any]],
     column_labels: dict[str, str] | None = None,
+    precomputed_stats: dict[str, Any] | None = None,
 ) -> str:
     """
     Phân tích kết quả truy vấn và viết báo cáo chi tiết bằng tiếng Việt.
@@ -358,6 +359,7 @@ def generate_insight(
     Args:
         user_query: Câu hỏi gốc của người dùng.
         raw_json_data: Mảng dict trả về từ db_executor (chỉ số liệu thật).
+        precomputed_stats: Stats đã tính (tránh compute_insight_stats 2 lần).
 
     Returns:
         Đoạn insight tiếng Việt — không bịa số ngoài JSON.
@@ -373,9 +375,10 @@ def generate_insight(
         raw_json_data[:_MAX_INSIGHT_ROWS], column_labels or {}
     )
     data_json = json.dumps(rows_for_insight, ensure_ascii=False, indent=2)
-    stats = _rename_stats_keys(
-        compute_insight_stats(raw_json_data), column_labels or {}
+    raw_stats = precomputed_stats if precomputed_stats is not None else (
+        compute_insight_stats(raw_json_data)
     )
+    stats = _rename_stats_keys(raw_stats, column_labels or {})
     stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
     truncated_note = ""
     if len(raw_json_data) > _MAX_INSIGHT_ROWS:

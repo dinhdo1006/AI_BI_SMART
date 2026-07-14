@@ -1,4 +1,4 @@
-"""Structured JSON logging cho luồng chat BI."""
+"""Structured JSON logging + audit trail cho luồng chat BI."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from typing import Any, Literal
 _LOGGER_NAME = "ai_bi.chat"
 _configured = False
 
-# File audit feedback — cải thiện few-shot / đo chất lượng sau này
-_FEEDBACK_DIR = Path(__file__).resolve().parent.parent / "logs"
-_FEEDBACK_FILE = _FEEDBACK_DIR / "feedback.jsonl"
+_LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+_FEEDBACK_FILE = _LOG_DIR / "feedback.jsonl"
+_AUDIT_FILE = _LOG_DIR / "audit.jsonl"
 
 FeedbackVote = Literal["up", "down"]
 
@@ -32,6 +32,12 @@ def _ensure_configured() -> logging.Logger:
     return logger
 
 
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
 def log_chat_event(
     *,
     domain_id: str,
@@ -46,13 +52,16 @@ def log_chat_event(
     viz_only: bool = False,
     error: str | None = None,
     from_cache: bool = False,
+    intent: str | None = None,
+    request_id: str | None = None,
+    client_ip: str | None = None,
 ) -> None:
-    """Ghi một dòng JSON cho mỗi request /api/v1/chat."""
+    """Ghi stdout + logs/audit.jsonl cho mỗi request /api/v1/chat."""
     payload: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "event": "chat_request",
         "domain_id": domain_id,
-        "query": query,
+        "query": query[:500],
         "status": status,
         "sql_source": sql_source,
         "row_count": row_count,
@@ -60,8 +69,14 @@ def log_chat_event(
         "viz_only": viz_only,
         "from_cache": from_cache,
     }
+    if request_id:
+        payload["request_id"] = request_id
+    if client_ip:
+        payload["client_ip"] = client_ip
+    if intent:
+        payload["intent"] = intent
     if sql_query:
-        payload["sql_query"] = sql_query[:500]
+        payload["sql_query"] = sql_query[:800]
     if latency_llm_ms is not None:
         payload["latency_llm_ms"] = round(latency_llm_ms, 1)
     if latency_db_ms is not None:
@@ -69,7 +84,9 @@ def log_chat_event(
     if error:
         payload["error"] = error[:300]
 
-    _ensure_configured().info(json.dumps(payload, ensure_ascii=False))
+    line = json.dumps(payload, ensure_ascii=False)
+    _ensure_configured().info(line)
+    _append_jsonl(_AUDIT_FILE, payload)
 
 
 def log_feedback(
@@ -86,7 +103,7 @@ def log_feedback(
         "ts": datetime.now(timezone.utc).isoformat(),
         "event": "feedback",
         "domain_id": domain_id,
-        "query": query,
+        "query": query[:500],
         "vote": vote,
     }
     if sql_source:
@@ -98,7 +115,4 @@ def log_feedback(
 
     line = json.dumps(payload, ensure_ascii=False)
     _ensure_configured().info(line)
-
-    _FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
-    with _FEEDBACK_FILE.open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+    _append_jsonl(_FEEDBACK_FILE, payload)

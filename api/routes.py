@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,7 @@ from core.config_loader import list_available_domains, load_domain_config
 from core.dashboard_store import create_dashboard, get_dashboard
 from core.db_dialect import detect_dialect, dialect_label
 from core.db_executor import DbQueryError, execute_query
+from core.domain_explorer import build_domain_explore
 from core.insight_stats import compute_insight_stats
 from core.llm_agent import generate_insight, generate_sql, repair_sql
 from core.logger import log_chat_event, log_feedback
@@ -54,6 +56,33 @@ _INSIGHT_EMPTY_DATA = (
 
 # Cột ngày trong kết quả → suy ra data_as_of (không query DB thêm)
 _DATE_COL_HINTS = ("ngay", "date", "time", "updated", "surveyed", "start")
+
+
+def _client_ip(http_request: Request | None) -> str | None:
+    if http_request is None:
+        return None
+    forwarded = http_request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or None
+    if http_request.client:
+        return http_request.client.host
+    return None
+
+
+def _label_period(
+    period: dict[str, Any] | None,
+    labels: dict[str, str],
+) -> dict[str, Any] | None:
+    if not period:
+        return None
+    out = dict(period)
+    metric = out.get("metric")
+    date_col = out.get("date_col")
+    if metric is not None:
+        out["metric"] = labels.get(str(metric), metric)
+    if date_col is not None:
+        out["date_col"] = labels.get(str(date_col), date_col)
+    return out
 
 
 def _infer_data_as_of(rows: list[dict[str, Any]]) -> str | None:
@@ -148,6 +177,8 @@ class ChatResponse(BaseModel):
     sql_source: str | None = None
     # Ngày mới nhất trong kết quả (YYYY-MM-DD), suy từ data — không query thêm
     data_as_of: str | None = None
+    # So sánh kỳ (MoM/QoQ/YoY) — đã tính từ data, dùng badge KPI
+    period_comparison: dict[str, Any] | None = None
 
 
 class ArticleRequest(BaseModel):
@@ -242,6 +273,18 @@ def get_domains() -> dict[str, list[dict[str, str]]]:
             name = domain_id
         items.append({"id": domain_id, "name": name})
     return {"domains": items}
+
+
+@router.get("/domains/{domain_id}/explore")
+def explore_domain(domain_id: str) -> dict[str, Any]:
+    """Schema nghiệp vụ + câu hỏi mẫu — giúp user biết domain có gì để hỏi."""
+    try:
+        cfg = load_domain_config(domain_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return build_domain_explore(cfg)
 
 
 @router.get("/health/domains")
@@ -514,7 +557,10 @@ def get_dashboard_endpoint(dash_id: str) -> dict[str, Any]:
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(
+    request: ChatRequest,
+    http_request: Request,
+) -> ChatResponse:
     """
     Luồng Text-to-SQL + Insight + Viz:
       1. Load config
@@ -528,6 +574,8 @@ def chat(request: ChatRequest) -> ChatResponse:
     sql_source = "unknown"
     sql = ""
     intent: str | None = None
+    request_id = uuid.uuid4().hex[:12]
+    client_ip = _client_ip(http_request)
 
     history_dicts: list[dict[str, str]] = [
         {"role": m.role, "content": m.content} for m in request.history
@@ -554,6 +602,9 @@ def chat(request: ChatRequest) -> ChatResponse:
             viz_only=viz_only,
             error=error,
             from_cache=from_cache,
+            intent=intent,
+            request_id=request_id,
+            client_ip=client_ip,
         )
 
     # --- Nhánh nhanh: chỉ đổi loại biểu đồ, tái sử dụng data ---
@@ -827,13 +878,17 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
         return resp
 
-    # Bước 4: Insight (chỉ khi có dữ liệu)
+    # Bước 4: Insight + period comparison (chỉ khi có dữ liệu)
+    stats = compute_insight_stats(rows)
+    period = _label_period(stats.get("period_comparison"), labels)
+
     try:
         t_llm = time.perf_counter()
         insight = generate_insight(
             request.query,
             rows,
             column_labels=labels,
+            precomputed_stats=stats,
         )
         latency_llm_ms += (time.perf_counter() - t_llm) * 1000
     except Exception:
@@ -861,6 +916,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         intent=intent,
         sql_source=sql_source,
         data_as_of=_infer_data_as_of(rows),
+        period_comparison=period,
     )
     set_cached_response(
         request.domain_id, request.query, resp.model_dump(mode="json")
@@ -878,7 +934,10 @@ _STREAM_STEPS = [
 
 
 @router.post("/chat/stream")
-def chat_stream(request: ChatRequest) -> StreamingResponse:
+def chat_stream(
+    request: ChatRequest,
+    http_request: Request,
+) -> StreamingResponse:
     """
     SSE stream: gửi progress steps trong lúc chạy /chat đồng bộ,
     rồi gửi event result với ChatResponse đầy đủ.
@@ -889,7 +948,7 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
         def worker() -> None:
             try:
-                result = chat(request)
+                result = chat(request, http_request=http_request)
                 q.put(("result", result))
             except Exception as exc:  # noqa: BLE001
                 q.put(("error", str(exc)))

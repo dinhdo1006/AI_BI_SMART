@@ -8,12 +8,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
+from core.auth import ApiKeyMiddleware, auth_enabled
 from core.schema_rag import is_schema_rag_enabled
 
 app = FastAPI(
     title="Multi-domain Conversational BI",
     description="Text-to-SQL cục bộ với Ollama — hỗ trợ SQLite/PostgreSQL + RAG Schema.",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 _cors_origins = [
@@ -24,6 +25,8 @@ _cors_origins = [
     ).split(",")
     if o.strip()
 ]
+# Auth trước — CORS outermost (add sau) để preflight OPTIONS không bị 401
+app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -32,7 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Gắn router /api/v1/*
 app.include_router(router)
 
 
@@ -42,13 +44,5 @@ def health() -> dict[str, str | bool]:
     return {
         "status": "ok",
         "schema_rag_enabled": is_schema_rag_enabled(),
-    }
-
-
-@app.get("/health")
-def health() -> dict[str, str | bool]:
-    """Health-check — gọi /api/v1/health/domains để kiểm tra DB từng domain."""
-    return {
-        "status": "ok",
-        "schema_rag_enabled": is_schema_rag_enabled(),
+        "auth_required": auth_enabled(),
     }

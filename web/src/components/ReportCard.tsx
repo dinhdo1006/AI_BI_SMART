@@ -366,7 +366,13 @@ export function ReportCard({
           <InsightBlock text={resolvedInsight || payload.insight} />
         )}
 
-        {hasData && <KpiRow data={payload.data} labels={labels} />}
+        {hasData && (
+          <KpiRow
+            data={payload.data}
+            labels={labels}
+            period={payload.period_comparison}
+          />
+        )}
 
         {hasData && (
           <div

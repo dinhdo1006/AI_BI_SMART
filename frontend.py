@@ -38,6 +38,14 @@ ARTICLE_URL = f"{API_BASE}/api/v1/generate_article"
 DOMAINS_URL = f"{API_BASE}/api/v1/domains"
 _API_TIMEOUT_SEC = 300  # LLM local có thể mất 2–3 phút với câu hỏi phức tạp
 _ARTICLE_TIMEOUT_SEC = 420  # Narrative Planner: 3 bước LLM
+_API_KEY = os.getenv("API_KEY", "").strip()
+
+
+def _api_headers() -> dict[str, str]:
+    """Gửi X-API-Key khi backend bật auth."""
+    if not _API_KEY:
+        return {}
+    return {"X-API-Key": _API_KEY}
 
 # Fallback khi API chưa chạy
 _FALLBACK_DOMAINS: dict[str, str] = {
@@ -160,7 +168,7 @@ _CHART_VIZ_QUERIES: dict[str, str] = {
 def _load_domains() -> dict[str, str]:
     """Lấy danh sách domain từ API — fallback nếu backend chưa chạy."""
     try:
-        resp = requests.get(DOMAINS_URL, timeout=5)
+        resp = requests.get(DOMAINS_URL, headers=_api_headers(), timeout=5)
         resp.raise_for_status()
         items = resp.json().get("domains", [])
         if items and isinstance(items[0], dict):
@@ -508,7 +516,9 @@ def _call_chat_api(
     if reuse_data is not None:
         body["reuse_data"] = reuse_data
     try:
-        resp = requests.post(CHAT_URL, json=body, timeout=_API_TIMEOUT_SEC)
+        resp = requests.post(
+            CHAT_URL, json=body, headers=_api_headers(), timeout=_API_TIMEOUT_SEC
+        )
     except requests.exceptions.Timeout:
         return _error_payload(
             domain_id,
@@ -570,7 +580,10 @@ def _call_generate_article_api(
     }
     try:
         resp = requests.post(
-            ARTICLE_URL, json=body, timeout=_ARTICLE_TIMEOUT_SEC
+            ARTICLE_URL,
+            json=body,
+            headers=_api_headers(),
+            timeout=_ARTICLE_TIMEOUT_SEC,
         )
     except requests.exceptions.Timeout:
         return {

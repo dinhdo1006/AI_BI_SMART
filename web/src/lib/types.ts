@@ -14,6 +14,18 @@ export type HistoryMessage = {
   content: string;
 };
 
+export type PeriodComparison = {
+  metric: string;
+  date_col?: string;
+  mode: "MoM" | "QoQ" | "YoY" | "half_split" | string;
+  previous_period: string;
+  current_period: string;
+  previous_mean: number;
+  current_mean: number;
+  pct_change: number | null;
+  direction: "up" | "down" | "flat" | string;
+};
+
 export type ChatResponse = {
   status: ResponseStatus;
   domain_id: string;
@@ -33,6 +45,8 @@ export type ChatResponse = {
   sql_source?: string | null;
   /** Ngày mới nhất trong kết quả (YYYY-MM-DD) */
   data_as_of?: string | null;
+  /** So sánh kỳ MoM/QoQ/YoY */
+  period_comparison?: PeriodComparison | null;
   error?: string;
 };
 
@@ -68,6 +82,26 @@ export type DashboardPayload = {
 };
 
 export type DomainItem = { id: string; name: string };
+
+export type DomainExploreColumn = {
+  name: string;
+  label: string;
+  description: string;
+};
+
+export type DomainExploreTable = {
+  name: string;
+  description: string;
+  columns: DomainExploreColumn[];
+};
+
+export type DomainExplore = {
+  domain_id: string;
+  domain_name: string;
+  table_count: number;
+  tables: DomainExploreTable[];
+  sample_questions: string[];
+};
 
 export type DomainsHealth = {
   schema_rag_enabled?: boolean;

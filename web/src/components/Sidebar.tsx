@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import {
   Activity,
+  BookOpen,
+  ChevronDown,
   MessageSquarePlus,
   Pencil,
   Pin,
@@ -11,9 +13,13 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { API_BASE, fetchDomainsHealth } from "@/lib/api";
+import {
+  API_BASE,
+  fetchDomainExplore,
+  fetchDomainsHealth,
+} from "@/lib/api";
 import { promptsForDomain } from "@/lib/domain-prompts";
-import type { DomainsHealth } from "@/lib/types";
+import type { DomainExplore, DomainsHealth } from "@/lib/types";
 import { useChatStore, type ChatSession } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +35,8 @@ export function Sidebar() {
   const togglePinSession = useChatStore((s) => s.togglePinSession);
   const renameSession = useChatStore((s) => s.renameSession);
   const [health, setHealth] = useState<DomainsHealth | null>(null);
+  const [explore, setExplore] = useState<DomainExplore | null>(null);
+  const [exploreOpen, setExploreOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 
@@ -37,6 +45,12 @@ export function Sidebar() {
     const t = setInterval(() => fetchDomainsHealth().then(setHealth), 60_000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    setExplore(null);
+    setExploreOpen(false);
+    fetchDomainExplore(domainId).then(setExplore);
+  }, [domainId]);
 
   const suggestions = promptsForDomain(domainId);
   const domainHealth = health?.domains?.[domainId];
@@ -98,6 +112,52 @@ export function Sidebar() {
             ))}
           </select>
         </label>
+
+        {explore && explore.tables.length > 0 && (
+          <div className="rounded-xl border border-line bg-white/70">
+            <button
+              type="button"
+              onClick={() => setExploreOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+            >
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
+                <BookOpen className="h-3.5 w-3.5 text-teal" />
+                Domain có gì ({explore.table_count} bảng)
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 text-ink-soft transition",
+                  exploreOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {exploreOpen && (
+              <ul className="max-h-48 space-y-2 overflow-y-auto border-t border-line px-3 py-2.5 scrollbar-thin">
+                {explore.tables.map((t) => (
+                  <li key={t.name}>
+                    <p className="text-[13px] font-semibold text-ink">
+                      {t.name}
+                    </p>
+                    {t.description ? (
+                      <p className="mt-0.5 text-[11px] leading-snug text-ink-soft/70">
+                        {t.description}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-[10px] text-ink-soft/55">
+                      {t.columns
+                        .slice(0, 6)
+                        .map((c) => c.label)
+                        .join(" · ")}
+                      {t.columns.length > 6
+                        ? ` · +${t.columns.length - 6}`
+                        : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div>
           <div className="mb-2 flex items-center justify-between px-1">

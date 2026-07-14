@@ -2,6 +2,7 @@ import type {
   ArticleResponse,
   ChatResponse,
   DashboardPayload,
+  DomainExplore,
   DomainsHealth,
   DomainItem,
   HistoryMessage,
@@ -11,7 +12,10 @@ import type {
  * Mặc định: gọi cùng origin (`/api/...`) — Next.js rewrite tới FastAPI.
  * Chỉ set NEXT_PUBLIC_API_BASE khi muốn gọi API trực tiếp (bỏ qua proxy).
  */
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(
+  /\/$/,
+  "",
+);
 
 function apiUrl(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
@@ -55,6 +59,21 @@ export async function fetchDomainsHealth(): Promise<DomainsHealth | null> {
     });
     if (!res.ok) return null;
     return (await res.json()) as DomainsHealth;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchDomainExplore(
+  domainId: string,
+): Promise<DomainExplore | null> {
+  try {
+    const res = await fetch(
+      apiUrl(`/api/v1/domains/${encodeURIComponent(domainId)}/explore`),
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as DomainExplore;
   } catch {
     return null;
   }
@@ -379,5 +398,3 @@ export async function postFeedback(params: {
     return false;
   }
 }
-
-export { API_BASE };
