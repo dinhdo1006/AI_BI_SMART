@@ -108,21 +108,24 @@ export function ReportCard({
     [chartType, payload.data, hasData],
   );
 
-  // Viz-only không sinh insight mới — kế thừa từ báo cáo trước có nội dung
+  // Viz-only chỉ có insight ngắn ("Đã chuyển hiển thị…") — Word cần nội dung phân tích gốc
   const resolvedInsight = useMemo(() => {
-    if (payload.insight) return payload.insight;
-    if (!payload.viz_only) return "";
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (
-        m.id !== messageId &&
-        m.role === "assistant" &&
-        m.payload?.insight
-      ) {
-        return m.payload.insight;
+    if (payload.viz_only) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (
+          m.id !== messageId &&
+          m.role === "assistant" &&
+          m.payload?.insight &&
+          !m.payload.viz_only
+        ) {
+          return m.payload.insight;
+        }
       }
+      // Không tìm được gốc — dùng insight ngắn hiện tại
+      return payload.insight || "";
     }
-    return "";
+    return payload.insight || "";
   }, [payload.insight, payload.viz_only, messages, messageId]);
 
   const renamed = useMemo(() => {
@@ -231,7 +234,7 @@ export function ReportCard({
         reports: [
           {
             query: payload.query,
-            insight: payload.insight,
+            insight: resolvedInsight || payload.insight,
             data: payload.data,
             chart_type: chartType,
             column_labels: labels,
