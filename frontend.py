@@ -49,8 +49,6 @@ def _api_headers() -> dict[str, str]:
 
 # Fallback khi API chưa chạy
 _FALLBACK_DOMAINS: dict[str, str] = {
-    "it_deployment": "IT Deployment & FSI",
-    "mining_geology": "Mining & Geology",
     "finance_vnfdata": "VNFDATA — Tài chính",
 }
 
@@ -88,32 +86,6 @@ _COLOR_SEQ = ["#0078D4", "#5C2D91", "#107C10", "#8764B8", "#004E8C", "#881798"]
 _KPI_ACCENTS = ["#0078D4", "#5C2D91", "#107C10", "#8764B8"]
 
 _FALLBACK_LABELS: dict[str, str] = {
-    "project_name": "Tên dự án",
-    "status": "Trạng thái",
-    "owner": "Chủ dự án",
-    "department": "Phòng ban",
-    "budget_usd": "Ngân sách (USD)",
-    "start_date": "Ngày bắt đầu",
-    "priority": "Độ ưu tiên",
-    "completion_pct": "Tiến độ FSI (%)",
-    "updated_at": "Ngày cập nhật",
-    "milestone": "Mốc tiến độ",
-    "avg_progress_pct": "Tiến độ TB (%)",
-    "latest_progress_pct": "Tiến độ mới nhất (%)",
-    "total_budget_usd": "Tổng ngân sách (USD)",
-    "this_week_avg_pct": "TB tuần này (%)",
-    "last_week_avg_pct": "TB tuần trước (%)",
-    "delta_pct": "Chênh lệch (%)",
-    "area_name": "Tên khu vực mỏ",
-    "mineral_type": "Loại khoáng sản",
-    "province": "Tỉnh / thành",
-    "tonnage": "Trữ lượng (tấn)",
-    "depth_m": "Độ sâu (m)",
-    "grade_pct": "Hàm lượng (%)",
-    "surveyed_at": "Ngày khảo sát",
-    "total_tonnage": "Tổng trữ lượng (tấn)",
-    "avg_depth_m": "Độ sâu TB (m)",
-    "avg_grade_pct": "Hàm lượng TB (%)",
     "ma_cp": "Mã CP",
     "ten_dn": "Tên doanh nghiệp",
     "san_giao_dich": "Sàn GD",
@@ -129,18 +101,6 @@ _FALLBACK_LABELS: dict[str, str] = {
 
 # Gợi ý câu hỏi theo domain — sidebar hiển thị đúng ngữ cảnh nghiệp vụ
 _DOMAIN_SAMPLE_QUERIES: dict[str, list[str]] = {
-    "it_deployment": [
-        "Tiến độ FSI trung bình từng dự án, vẽ biểu đồ miền",
-        "Xu hướng tiến độ FSI theo thời gian",
-        "Top 5 dự án có ngân sách cao nhất",
-        "So sánh tiến độ FSI giữa các phòng ban",
-    ],
-    "mining_geology": [
-        "Tổng trữ lượng theo khu vực mỏ",
-        "Hàm lượng trung bình theo loại khoáng sản",
-        "Top 5 mỏ có trữ lượng lớn nhất",
-        "So sánh độ sâu trung bình các khu vực mỏ",
-    ],
     "finance_vnfdata": [
         "Top 5 mã cổ phiếu có vốn hóa lớn nhất trên sàn HoSE, vẽ biểu đồ cột",
         "Cho tôi biết doanh thu thuần và LN sau thuế của FPT qua các quý",
@@ -705,7 +665,7 @@ def _sync_chart_via_api(
 def _render_domain_suggestions(domain_id: str) -> None:
     """Gợi ý câu hỏi theo domain đang chọn."""
     samples = _DOMAIN_SAMPLE_QUERIES.get(domain_id) or _DOMAIN_SAMPLE_QUERIES.get(
-        "it_deployment", []
+        "finance_vnfdata", []
     )
     st.markdown("**Gợi ý hỏi:**")
     for sample in samples:

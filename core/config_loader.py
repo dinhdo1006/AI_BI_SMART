@@ -18,7 +18,7 @@ load_dotenv(_PROJECT_ROOT / ".env")
 
 
 def _env_db_url_key(domain_id: str) -> str:
-    """Map domain_id → tên biến môi trường, vd: it_deployment → IT_DEPLOYMENT_DB_URL."""
+    """Map domain_id → tên biến môi trường, vd: finance_vnfdata → FINANCE_VNFDATA_DB_URL."""
     return f"{domain_id.upper()}_DB_URL"
 
 
@@ -30,7 +30,7 @@ def load_domain_config(domain_id: str) -> dict[str, Any]:
             nếu không có thì fallback về giá trị trong JSON.
 
     Args:
-        domain_id: Tên domain (vd: "it_deployment", "mining_geology").
+        domain_id: Tên domain (vd: "finance_vnfdata").
                    Tương ứng với file configs/{domain_id}.json.
 
     Returns:

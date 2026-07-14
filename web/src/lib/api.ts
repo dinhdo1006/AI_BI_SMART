@@ -49,11 +49,7 @@ export async function fetchDomains(): Promise<DomainItem[]> {
     const data = await res.json();
     return (data.domains || []) as DomainItem[];
   } catch {
-    return [
-      { id: "finance_vnfdata", name: "VNFDATA — Tài chính" },
-      { id: "it_deployment", name: "IT Deployment & FSI" },
-      { id: "mining_geology", name: "Mining & Geology" },
-    ];
+    return [{ id: "finance_vnfdata", name: "VNFDATA — Tài chính" }];
   }
 }
 

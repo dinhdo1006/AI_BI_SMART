@@ -130,14 +130,14 @@ class ChatRequest(BaseModel):
 
     domain_id: str = Field(
         ...,
-        description="ID domain cấu hình (vd: it_deployment, mining_geology)",
-        examples=["it_deployment"],
+        description="ID domain cấu hình (vd: finance_vnfdata)",
+        examples=["finance_vnfdata"],
     )
     query: str = Field(
         ...,
         min_length=1,
         description="Câu hỏi tiếng Việt của người dùng",
-        examples=["Liệt kê tất cả dự án đang triển khai"],
+        examples=["Top 10 mã vốn hóa lớn nhất"],
     )
     history: list[HistoryMessage] = Field(
         default_factory=list,

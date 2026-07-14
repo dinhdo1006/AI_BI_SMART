@@ -1,9 +1,8 @@
-"""Tests Alert Engine — metrics, store, evaluate (IT domain mock)."""
+"""Tests Alert Engine — metrics, store, evaluate (finance domain)."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,13 +16,9 @@ from core.alert_metrics import (
 from core.alert_store import (
     create_rule,
     delete_rule,
-    list_events,
     list_rules,
 )
 from core.config_loader import load_domain_config
-
-# Dùng DB riêng cho test — không đụng alerts.db thật
-_TEST_DB = Path(__file__).resolve().parent / "_tmp_alerts_test.db"
 
 
 @pytest.fixture(autouse=True)
@@ -35,19 +30,19 @@ def _isolate_alert_db(monkeypatch, tmp_path):
 
 def test_sanitize_target() -> None:
     assert sanitize_target("FPT") == "FPT"
-    assert sanitize_target("SAP S/4HANA Pilot") == "SAP S/4HANA Pilot"
-    assert sanitize_target("Warehouse WMS Upgrade") == "Warehouse WMS Upgrade"
+    assert sanitize_target("VNM Corp") == "VNM Corp"
     with pytest.raises(ValueError):
         sanitize_target("bad;drop")
     with pytest.raises(ValueError):
         sanitize_target("a' OR 1=1")
 
 
-def test_list_metrics_all_domains() -> None:
-    for did in ("finance_vnfdata", "it_deployment", "mining_geology"):
-        items = list_metrics(did)
-        assert len(items) >= 1
-        assert all("key" in m and "label" in m for m in items)
+def test_list_metrics_finance() -> None:
+    items = list_metrics("finance_vnfdata")
+    assert len(items) >= 1
+    assert all("key" in m and "label" in m for m in items)
+    assert list_metrics("it_deployment") == []
+    assert list_metrics("mining_geology") == []
 
 
 def test_compare_ops() -> None:
@@ -58,56 +53,55 @@ def test_compare_ops() -> None:
     assert compare(21, "lt", 20) is False
 
 
-def test_build_it_sql() -> None:
-    cfg = load_domain_config("it_deployment")
+def test_build_finance_sql() -> None:
+    cfg = load_domain_config("finance_vnfdata")
     sql = build_metric_sql(
-        "it_deployment",
-        "avg_fsi_pct",
-        target=None,
+        "finance_vnfdata",
+        "pe_ratio",
+        target="FPT",
         db_url=cfg["db_url"],
     )
-    assert "completion_pct" in sql
+    assert "FPT" in sql.upper() or "fpt" in sql.lower()
     assert sql.strip().upper().startswith("SELECT")
+    assert "value" in sql.lower()
 
 
 def test_rule_lifecycle_and_run() -> None:
-    # Cần mock_database.db tồn tại
-    cfg = load_domain_config("it_deployment")
-    db_path = cfg["db_url"].replace("sqlite:///", "")
-    if not Path(db_path).is_file() and not Path("mock_database.db").is_file():
-        pytest.skip("mock_database.db chưa có — bỏ qua integration")
-
+    """Evaluate dùng mock execute_query — không phụ thuộc DB live."""
     rule = create_rule(
-        domain_id="it_deployment",
-        name="FSI TB thấp",
-        metric_key="avg_fsi_pct",
-        operator="lt",
-        threshold=101.0,  # hầu như luôn trigger nếu có data
-        target=None,
+        domain_id="finance_vnfdata",
+        name="P/E FPT cao",
+        metric_key="pe_ratio",
+        operator="gt",
+        threshold=10.0,
+        target="FPT",
     )
     assert rule["id"]
-    assert len(list_rules("it_deployment")) >= 1
+    assert len(list_rules("finance_vnfdata")) >= 1
 
-    result = evaluate_rule(rule)
-    assert result["status"] in ("ok", "triggered", "error")
-    if result["status"] != "error":
-        assert "value" in result
+    with patch(
+        "core.alert_engine.execute_query",
+        return_value=[{"label": "FPT", "value": 21.5}],
+    ):
+        result = evaluate_rule(rule)
+        assert result["status"] == "triggered"
+        assert result["triggered"] is True
+        assert result["value"] == 21.5
 
-    # threshold rất thấp → không trigger nếu value > 0
-    rule2 = create_rule(
-        domain_id="it_deployment",
-        name="FSI TB cao bất thường",
-        metric_key="avg_fsi_pct",
-        operator="gt",
-        threshold=1000.0,
-        target=None,
-    )
-    r2 = evaluate_rule(rule2)
-    if r2["status"] != "error":
+        rule2 = create_rule(
+            domain_id="finance_vnfdata",
+            name="P/E FPT thấp bất thường",
+            metric_key="pe_ratio",
+            operator="gt",
+            threshold=1000.0,
+            target="FPT",
+        )
+        r2 = evaluate_rule(rule2)
+        assert r2["status"] == "ok"
         assert r2["triggered"] is False
 
-    batch = run_alerts("it_deployment")
-    assert batch["checked"] >= 2
+        batch = run_alerts("finance_vnfdata")
+        assert batch["checked"] >= 2
 
     delete_rule(rule["id"])
     delete_rule(rule2["id"])

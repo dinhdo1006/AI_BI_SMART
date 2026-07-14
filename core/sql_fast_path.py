@@ -266,205 +266,6 @@ def _finance_fast_sql(user_query: str, norm: str) -> str | None:
     return None
 
 
-def _it_deployment_fast_sql(norm: str) -> str | None:
-    # Danh sách dự án chưa hoàn thành / đang triển khai
-    if any(k in norm for k in ("danh sach", "liet ke", "liệt kê")) and any(
-        k in norm for k in ("chua hoan thanh", "chưa hoàn thành", "dang trien khai", "đang triển khai", "in progress")
-    ):
-        return (
-            "SELECT project_name AS project_name, status AS status, owner AS owner, "
-            "department AS department, budget_usd AS budget_usd, priority AS priority, "
-            "start_date AS start_date "
-            "FROM projects WHERE status = 'in_progress' "
-            "ORDER BY project_name ASC"
-        )
-
-    # Tiến độ tuần này so với tuần trước
-    if any(k in norm for k in ("tuan nay", "tuần này", "tuan truoc", "tuần trước")):
-        return (
-            "SELECT p.project_name AS project_name, "
-            "ROUND(AVG(CASE WHEN f.updated_at >= date('now', '-7 day') "
-            "THEN f.completion_pct END), 2) AS this_week_avg_pct, "
-            "ROUND(AVG(CASE WHEN f.updated_at >= date('now', '-14 day') "
-            "AND f.updated_at < date('now', '-7 day') THEN f.completion_pct END), 2) "
-            "AS last_week_avg_pct, "
-            "ROUND(AVG(CASE WHEN f.updated_at >= date('now', '-7 day') "
-            "THEN f.completion_pct END) - AVG(CASE WHEN f.updated_at >= date('now', '-14 day') "
-            "AND f.updated_at < date('now', '-7 day') THEN f.completion_pct END), 2) "
-            "AS delta_pct "
-            "FROM projects p JOIN fsi_progress f ON p.id = f.project_id "
-            "GROUP BY p.project_name ORDER BY p.project_name"
-        )
-
-    # Ngân sách lớn nhất / top budget
-    if any(k in norm for k in ("ngan sach", "ngân sách", "budget")) and any(
-        k in norm for k in ("lon nhat", "lớn nhất", "cao nhat", "cao nhất", "top")
-    ):
-        n = _extract_limit(norm, default=5)
-        return (
-            "SELECT project_name AS project_name, status AS status, owner AS owner, "
-            "department AS department, budget_usd AS budget_usd, priority AS priority "
-            "FROM projects "
-            f"ORDER BY budget_usd DESC LIMIT {n}"
-        )
-
-    # Phân bố / thống kê theo phòng ban
-    if any(k in norm for k in ("phong ban", "phòng ban", "department")) and any(
-        k in norm for k in ("theo", "phan bo", "phân bố", "tung", "từng", "thong ke", "thống kê")
-    ):
-        return (
-            "SELECT department AS department, COUNT(*) AS project_count, "
-            "ROUND(SUM(budget_usd), 0) AS total_budget_usd "
-            "FROM projects GROUP BY department ORDER BY total_budget_usd DESC"
-        )
-
-    # Dự án ưu tiên cao
-    if any(k in norm for k in ("uu tien cao", "ưu tiên cao", "priority high", "high priority")):
-        return (
-            "SELECT project_name AS project_name, status AS status, owner AS owner, "
-            "department AS department, budget_usd AS budget_usd, priority AS priority, "
-            "start_date AS start_date "
-            "FROM projects WHERE priority = 'High' "
-            "ORDER BY budget_usd DESC"
-        )
-
-    # Dự án tạm dừng / on hold
-    if any(k in norm for k in ("tam dung", "tạm dừng", "on hold", "treo", "chua bat dau", "chưa bắt đầu")):
-        return (
-            "SELECT project_name AS project_name, status AS status, owner AS owner, "
-            "department AS department, budget_usd AS budget_usd, priority AS priority "
-            "FROM projects WHERE status IN ('on_hold', 'cancelled') "
-            "ORDER BY project_name ASC"
-        )
-
-    # Tiến độ FSI trung bình từng dự án — DESC
-    if any(k in norm for k in ("tien do", "tiến độ", "fsi", "progress")) and any(
-        k in norm for k in ("trung binh", "trung bình", "tb", "tung du an", "từng dự án")
-    ):
-        return (
-            "SELECT p.project_name AS project_name, "
-            "ROUND(AVG(f.completion_pct), 2) AS avg_progress_pct, "
-            "p.status AS status, p.priority AS priority "
-            "FROM projects p JOIN fsi_progress f ON p.id = f.project_id "
-            "GROUP BY p.id, p.project_name, p.status, p.priority "
-            "ORDER BY avg_progress_pct DESC"
-        )
-
-    # Dự án tiến độ thấp nhất
-    if any(k in norm for k in ("thap nhat", "thấp nhất", "cham nhat", "chậm nhất")):
-        n = _extract_limit(norm, default=5)
-        return (
-            "SELECT p.project_name AS project_name, "
-            "ROUND(AVG(f.completion_pct), 2) AS avg_progress_pct, "
-            "p.status AS status "
-            "FROM projects p JOIN fsi_progress f ON p.id = f.project_id "
-            "GROUP BY p.id, p.project_name, p.status "
-            f"ORDER BY avg_progress_pct ASC LIMIT {n}"
-        )
-
-    # Tỷ trọng / phân bố theo trạng thái
-    if any(k in norm for k in ("ty trong", "tỷ trọng", "phan bo", "phân bố", "trang thai", "trạng thái")):
-        return (
-            "SELECT status AS status, COUNT(*) AS project_count "
-            "FROM projects GROUP BY status ORDER BY project_count DESC"
-        )
-
-    # Xu hướng tiến độ theo thời gian
-    if any(k in norm for k in ("xu huong", "xu hướng", "theo thoi gian", "theo thời gian")):
-        return (
-            "SELECT p.project_name AS project_name, f.updated_at AS updated_at, "
-            "f.completion_pct AS completion_pct, f.milestone AS milestone "
-            "FROM projects p JOIN fsi_progress f ON p.id = f.project_id "
-            "ORDER BY p.project_name ASC, f.updated_at ASC"
-        )
-
-    return None
-
-
-def _mining_fast_sql(norm: str) -> str | None:
-    if any(k in norm for k in ("tong tru luong", "tổng trữ lượng", "tru luong", "trữ lượng")) and any(
-        k in norm for k in ("khu vuc", "khu vực", "tung", "từng")
-    ):
-        return (
-            "SELECT m.area_name AS area_name, m.mineral_type AS mineral_type, "
-            "ROUND(SUM(r.tonnage), 1) AS total_tonnage, "
-            "ROUND(AVG(r.depth_m), 1) AS avg_depth_m "
-            "FROM mine_areas m JOIN reserves r ON m.id = r.mine_id "
-            "GROUP BY m.id, m.area_name, m.mineral_type "
-            "ORDER BY total_tonnage DESC"
-        )
-
-    if any(k in norm for k in ("so sanh", "so sánh")) and any(
-        k in norm for k in ("loai", "loại", "khoang san", "khoáng sản", "mineral")
-    ):
-        return (
-            "SELECT m.mineral_type AS mineral_type, "
-            "ROUND(SUM(r.tonnage), 1) AS total_tonnage, "
-            "ROUND(AVG(r.grade_pct), 2) AS avg_grade_pct "
-            "FROM mine_areas m JOIN reserves r ON m.id = r.mine_id "
-            "GROUP BY m.mineral_type ORDER BY total_tonnage DESC"
-        )
-
-    if "than" in norm or "coal" in norm:
-        return (
-            "SELECT area_name AS area_name, mineral_type AS mineral_type, "
-            "province AS province, status AS status "
-            "FROM mine_areas WHERE mineral_type = 'coal' "
-            "ORDER BY area_name ASC"
-        )
-
-    # Hàm lượng cao nhất
-    if any(k in norm for k in ("ham luong", "hàm lượng", "grade")) and any(
-        k in norm for k in ("cao nhat", "cao nhất", "lon nhat", "lớn nhất", "top")
-    ):
-        n = _extract_limit(norm, default=5)
-        return (
-            "SELECT m.area_name AS area_name, m.mineral_type AS mineral_type, "
-            "m.province AS province, "
-            "ROUND(AVG(r.grade_pct), 2) AS avg_grade_pct, "
-            "ROUND(SUM(r.tonnage), 1) AS total_tonnage "
-            "FROM mine_areas m JOIN reserves r ON m.id = r.mine_id "
-            "GROUP BY m.id, m.area_name, m.mineral_type, m.province "
-            f"ORDER BY avg_grade_pct DESC LIMIT {n}"
-        )
-
-    # Trữ lượng theo tỉnh / thành
-    if any(k in norm for k in ("tinh", "tỉnh", "thanh pho", "thành phố", "province")) and any(
-        k in norm for k in ("tru luong", "trữ lượng", "tong", "tổng", "theo")
-    ):
-        return (
-            "SELECT m.province AS province, "
-            "ROUND(SUM(r.tonnage), 1) AS total_tonnage, "
-            "ROUND(AVG(r.grade_pct), 2) AS avg_grade_pct, "
-            "COUNT(DISTINCT m.id) AS area_count "
-            "FROM mine_areas m JOIN reserves r ON m.id = r.mine_id "
-            "GROUP BY m.province ORDER BY total_tonnage DESC"
-        )
-
-    # Khu vực đang khai thác (active)
-    if any(k in norm for k in ("dang khai thac", "đang khai thác", "active", "hoat dong", "hoạt động")):
-        return (
-            "SELECT m.area_name AS area_name, m.mineral_type AS mineral_type, "
-            "m.province AS province, m.status AS status, "
-            "ROUND(SUM(r.tonnage), 1) AS total_tonnage "
-            "FROM mine_areas m JOIN reserves r ON m.id = r.mine_id "
-            "WHERE m.status = 'active' "
-            "GROUP BY m.id, m.area_name, m.mineral_type, m.province, m.status "
-            "ORDER BY total_tonnage DESC"
-        )
-
-    # Khu vực đang thăm dò (exploration)
-    if any(k in norm for k in ("tham do", "thăm dò", "exploration")):
-        return (
-            "SELECT area_name AS area_name, mineral_type AS mineral_type, "
-            "province AS province, status AS status "
-            "FROM mine_areas WHERE status = 'exploration' "
-            "ORDER BY area_name ASC"
-        )
-
-    return None
-
-
 def _finance_pg_fast_sql(user_query: str, norm: str) -> str | None:
     """
     Fast-path cho vnfdatadb (PostgreSQL) — schema thật:
@@ -597,10 +398,9 @@ def try_fast_sql(
 ) -> str | None:
     """
     Trả về SQL chuẩn nếu nhận diện được mẫu câu hỏi quen thuộc.
-    Hỗ trợ: finance_vnfdata, it_deployment, mining_geology.
+    Hỗ trợ: finance_vnfdata.
 
     Finance + PostgreSQL: dùng schema vnfdatadb (companies/stock_prices/…).
-    Finance + SQLite mock: giữ fast-path bảng tiếng Việt cũ.
     """
     from core.db_dialect import detect_dialect
 
@@ -611,9 +411,5 @@ def try_fast_sql(
         if dialect == "postgresql":
             return _finance_pg_fast_sql(user_query, norm)
         return _finance_fast_sql(user_query, norm)
-    if domain_id == "it_deployment":
-        return _it_deployment_fast_sql(norm)
-    if domain_id == "mining_geology":
-        return _mining_fast_sql(norm)
 
     return None

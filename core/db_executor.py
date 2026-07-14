@@ -88,8 +88,7 @@ def execute_query(db_url: str, sql_query: str) -> list[dict[str, Any]]:
 
     Args:
         db_url: Chuỗi kết nối SQLAlchemy
-            (vd: sqlite:///mock_database.db hoặc
-             postgresql+psycopg2://user:pass@host:5432/vnfdatadb).
+            (vd: postgresql+psycopg2://user:pass@host:5432/vnfdatadb).
         sql_query: Câu SQL do LLM sinh ra — phải là SELECT thuần.
 
     Returns:

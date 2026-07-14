@@ -182,50 +182,6 @@ def _sql_finance_price_chg(target: str, dialect: str) -> str:
     )
 
 
-def _sql_it_project_fsi(target: str, dialect: str) -> str:
-    # SQLite mock — escape single quote
-    name = target.replace("'", "''")
-    return (
-        "SELECT p.project_name AS label, "
-        "ROUND(AVG(f.completion_pct), 2) AS value "
-        "FROM projects p "
-        "JOIN fsi_progress f ON f.project_id = p.id "
-        f"WHERE p.project_name = '{name}' "
-        "GROUP BY p.id, p.project_name"
-    )
-
-
-def _sql_it_avg_fsi(target: str, dialect: str) -> str:
-    return (
-        "SELECT 'all_projects' AS label, "
-        "ROUND(AVG(f.completion_pct), 2) AS value "
-        "FROM fsi_progress f"
-    )
-
-
-def _sql_mining_tonnage(target: str, dialect: str) -> str:
-    name = target.replace("'", "''")
-    return (
-        "SELECT m.area_name AS label, "
-        "ROUND(SUM(r.tonnage), 1) AS value "
-        "FROM mine_areas m "
-        "JOIN reserves r ON r.mine_id = m.id "
-        f"WHERE m.area_name = '{name}' "
-        "GROUP BY m.id, m.area_name"
-    )
-
-
-def _sql_mining_avg_grade(target: str, dialect: str) -> str:
-    return (
-        "SELECT m.mineral_type AS label, "
-        "ROUND(AVG(r.grade_pct), 4) AS value "
-        "FROM mine_areas m "
-        "JOIN reserves r ON r.mine_id = m.id "
-        "GROUP BY m.mineral_type "
-        "ORDER BY AVG(r.grade_pct) DESC LIMIT 1"
-    )
-
-
 _CATALOG: dict[str, list[dict[str, Any]]] = {
     "finance_vnfdata": [
         {
@@ -258,45 +214,6 @@ _CATALOG: dict[str, list[dict[str, Any]]] = {
             "description": "% thay đổi đóng cửa phiên mới nhất vs phiên trước",
             "sql": _sql_finance_price_chg,
         },
-    ],
-    "it_deployment": [
-        {
-            "key": "project_fsi_pct",
-            "label": "Tiến độ FSI dự án",
-            "unit": "%",
-            "needs_target": True,
-            "target_label": "Tên dự án",
-            "target_placeholder": "ERP Migration Phase 1",
-            "description": "Tiến độ FSI trung bình của một dự án",
-            "sql": _sql_it_project_fsi,
-        },
-        {
-            "key": "avg_fsi_pct",
-            "label": "Tiến độ FSI trung bình",
-            "unit": "%",
-            "needs_target": False,
-            "description": "TB tiến độ FSI toàn bộ snapshot",
-            "sql": _sql_it_avg_fsi,
-        },
-    ],
-    "mining_geology": [
-        {
-            "key": "reserve_tonnage",
-            "label": "Trữ lượng khu mỏ",
-            "unit": "tấn",
-            "needs_target": True,
-            "target_label": "Tên khu mỏ",
-            "target_placeholder": "",
-            "description": "Trữ lượng (reserve_tonnage) theo khu vực",
-            "sql": _sql_mining_tonnage,
-        },
-        {
-            "key": "top_avg_grade",
-            "label": "Hàm lượng TB cao nhất",
-            "unit": "%",
-            "needs_target": False,
-            "description": "Loại khoáng có avg_grade_pct trung bình cao nhất",
-            "sql": _sql_mining_avg_grade,
-        },
-    ],
+    ]
+
 }

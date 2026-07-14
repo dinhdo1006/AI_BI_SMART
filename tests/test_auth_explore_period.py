@@ -26,13 +26,13 @@ def test_auth_on_with_env(monkeypatch) -> None:
     assert auth_enabled() is True
 
 
-def test_domain_explore_it() -> None:
-    cfg = load_domain_config("it_deployment")
+def test_domain_explore_finance() -> None:
+    cfg = load_domain_config("finance_vnfdata")
     explore = build_domain_explore(cfg)
-    assert explore["domain_id"] == "it_deployment"
+    assert explore["domain_id"] == "finance_vnfdata"
     assert explore["table_count"] >= 2
     names = {t["name"] for t in explore["tables"]}
-    assert "projects" in names
+    assert "companies" in names or "stocks" in names
     assert len(explore["sample_questions"]) >= 1
 
 
@@ -66,6 +66,6 @@ if __name__ == "__main__":
     test_public_paths()
     test_auth_off_without_env(mp)
     test_auth_on_with_env(mp)
-    test_domain_explore_it()
+    test_domain_explore_finance()
     test_period_mom_for_short_series()
     print("ALL PASSED")
