@@ -576,7 +576,7 @@ def _call_generate_article_api(
         return {
             "error": (
                 "Viết bài báo quá lâu (Narrative Planner cần nhiều bước LLM). "
-                "Hãy thử lại hoặc kiểm tra Ollama (qwen2.5:7b)."
+                "Hãy thử lại hoặc kiểm tra Ollama (qwen2.5:14b)."
             )
         }
     except requests.exceptions.ConnectionError:

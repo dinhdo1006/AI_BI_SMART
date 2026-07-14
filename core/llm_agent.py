@@ -15,7 +15,7 @@ from core.insight_stats import compute_insight_stats
 
 # Model local qua Ollama — SQL và Insight tách riêng (cấu hình qua .env)
 _SQL_MODEL = os.getenv("SQL_MODEL", "sqlcoder:7b")
-_INSIGHT_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:7b")
+_INSIGHT_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:14b")
 
 # Loại bỏ markdown fence nếu LLM vẫn cố bọc ```sql ... ```
 _MARKDOWN_FENCE: re.Pattern[str] = re.compile(

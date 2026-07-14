@@ -22,7 +22,7 @@ _VALID_INTENTS: frozenset[str] = frozenset(
     {INTENT_SQL, INTENT_VIZ, INTENT_FOLLOWUP, INTENT_CHITCHAT, INTENT_OOS}
 )
 
-_ROUTER_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:7b")
+_ROUTER_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:14b")
 _ROUTER_NUM_PREDICT = 16
 
 # Heuristic nhanh — tránh gọi LLM khi đã rõ ràng

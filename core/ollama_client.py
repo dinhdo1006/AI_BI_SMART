@@ -14,6 +14,8 @@ from langchain_ollama import OllamaLLM
 _logger = logging.getLogger(__name__)
 
 _FALLBACK_MODELS = (
+    "qwen2.5:14b",
+    "qwen2.5:14b-instruct-q4_K_M",
     "qwen2.5:7b",
     "qwen2.5:3b",
     "qwen2.5:latest",
@@ -72,9 +74,9 @@ def _list_ollama_models() -> frozenset[str]:
 def resolve_ollama_model(preferred: str) -> str:
     """
     Chọn model có sẵn trên Ollama.
-    Nếu preferred thiếu → lần lượt fallback qwen2.5:7b / :3b / …
+    Nếu preferred thiếu → lần lượt fallback qwen2.5:14b / :7b / :3b / …
     """
-    preferred = (preferred or "").strip() or "qwen2.5:3b"
+    preferred = (preferred or "").strip() or "qwen2.5:14b"
     available = _list_ollama_models()
     if not available:
         return preferred

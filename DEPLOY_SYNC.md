@@ -128,5 +128,5 @@ tail -f ~/nextjs_bi.log    # log Next.js
 ```env
 API_BASE=http://127.0.0.1:2004
 SQL_MODEL=sqlcoder:7b
-INSIGHT_MODEL=qwen2.5:7b
+INSIGHT_MODEL=qwen2.5:14b
 ```

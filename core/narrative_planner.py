@@ -12,7 +12,7 @@ from langchain_ollama import OllamaLLM
 from core.insight_stats import compute_insight_stats
 from core.ollama_client import make_ollama_llm
 
-_NARRATIVE_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:7b")
+_NARRATIVE_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:14b")
 _MAX_SAMPLE_ROWS = 40
 _OUTLINE_NUM_PREDICT = 600
 _SECTION_NUM_PREDICT = 700
