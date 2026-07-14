@@ -1,19 +1,36 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Activity, Eraser, Sparkles } from "lucide-react";
+import {
+  Activity,
+  MessageSquarePlus,
+  Pencil,
+  Pin,
+  PinOff,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { API_BASE, fetchDomainsHealth } from "@/lib/api";
 import { promptsForDomain } from "@/lib/domain-prompts";
 import type { DomainsHealth } from "@/lib/types";
-import { useChatStore } from "@/store/chat-store";
+import { useChatStore, type ChatSession } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const domains = useChatStore((s) => s.domains);
   const domainId = useChatStore((s) => s.domainId);
   const setDomainId = useChatStore((s) => s.setDomainId);
-  const clearAll = useChatStore((s) => s.clearAll);
+  const sessions = useChatStore((s) => s.sessions);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const newChat = useChatStore((s) => s.newChat);
+  const selectSession = useChatStore((s) => s.selectSession);
+  const deleteSession = useChatStore((s) => s.deleteSession);
+  const togglePinSession = useChatStore((s) => s.togglePinSession);
+  const renameSession = useChatStore((s) => s.renameSession);
   const [health, setHealth] = useState<DomainsHealth | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
 
   useEffect(() => {
     fetchDomainsHealth().then(setHealth);
@@ -24,9 +41,20 @@ export function Sidebar() {
   const suggestions = promptsForDomain(domainId);
   const domainHealth = health?.domains?.[domainId];
 
+  function startRename(sess: ChatSession) {
+    setEditingId(sess.id);
+    setEditTitle(sess.title);
+  }
+
+  function commitRename() {
+    if (!editingId) return;
+    renameSession(editingId, editTitle);
+    setEditingId(null);
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-[22px] border border-line bg-foam/80 shadow-[var(--shadow)] backdrop-blur-md">
-      <div className="relative overflow-hidden border-b border-line px-5 pb-5 pt-6">
+      <div className="relative overflow-hidden border-b border-line px-5 pb-4 pt-6">
         <div
           className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full opacity-70"
           style={{
@@ -43,10 +71,18 @@ export function Sidebar() {
         <p className="mt-2 max-w-[16rem] text-sm leading-relaxed text-ink-soft/85">
           Hỏi bằng tiếng Việt — nhận SQL, dashboard và bài phân tích.
         </p>
+        <button
+          type="button"
+          onClick={() => newChat()}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-teal px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-deep"
+        >
+          <MessageSquarePlus className="h-4 w-4" />
+          Chat mới
+        </button>
       </div>
 
-      <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-5 scrollbar-thin">
-        <label className="block">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4 scrollbar-thin">
+        <label className="block px-1">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
             Domain dữ liệu
           </span>
@@ -64,7 +100,99 @@ export function Sidebar() {
         </label>
 
         <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
+              Cuộc trò chuyện
+            </span>
+            <span className="text-[10px] text-ink-soft/50">{sessions.length}</span>
+          </div>
+          <ul className="space-y-1">
+            {sessions.map((sess) => {
+              const active = sess.id === activeSessionId;
+              return (
+                <li key={sess.id}>
+                  <div
+                    className={cn(
+                      "group rounded-xl border px-2 py-1.5 transition",
+                      active
+                        ? "border-teal/35 bg-teal/10"
+                        : "border-transparent bg-mist/50 hover:border-line hover:bg-white",
+                    )}
+                  >
+                    <div className="flex items-start gap-1">
+                      <button
+                        type="button"
+                        onClick={() => selectSession(sess.id)}
+                        className="min-w-0 flex-1 px-1 py-1 text-left"
+                      >
+                        {editingId === sess.id ? (
+                          <input
+                            autoFocus
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            onBlur={commitRename}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitRename();
+                              if (e.key === "Escape") setEditingId(null);
+                            }}
+                            className="w-full rounded-md border border-teal/40 bg-white px-1.5 py-0.5 text-[13px] text-ink outline-none"
+                          />
+                        ) : (
+                          <>
+                            <p className="truncate text-[13px] font-medium text-ink">
+                              {sess.pinned ? "📌 " : ""}
+                              {sess.title}
+                            </p>
+                            <p className="mt-0.5 truncate text-[10px] text-ink-soft/55">
+                              {formatSessionMeta(sess)}
+                            </p>
+                          </>
+                        )}
+                      </button>
+                      <div className="flex shrink-0 gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                        <IconBtn
+                          label={sess.pinned ? "Bỏ ghim" : "Ghim"}
+                          onClick={() => togglePinSession(sess.id)}
+                        >
+                          {sess.pinned ? (
+                            <PinOff className="h-3.5 w-3.5" />
+                          ) : (
+                            <Pin className="h-3.5 w-3.5" />
+                          )}
+                        </IconBtn>
+                        <IconBtn
+                          label="Đổi tên"
+                          onClick={() => startRename(sess)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </IconBtn>
+                        <IconBtn
+                          label="Xóa chat"
+                          danger
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Xóa cuộc chat “${sess.title}”?`,
+                              )
+                            ) {
+                              deleteSession(sess.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </IconBtn>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
             <Sparkles className="h-3.5 w-3.5 text-copper" />
             Gợi ý hỏi
           </div>
@@ -116,21 +244,49 @@ export function Sidebar() {
           </p>
         </div>
       </div>
-
-      <div className="border-t border-line p-4">
-        <button
-          type="button"
-          onClick={clearAll}
-          className={cn(
-            "flex w-full items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 py-2.5",
-            "text-sm font-semibold text-ink-soft transition hover:border-copper/40 hover:text-copper",
-          )}
-        >
-          <Eraser className="h-4 w-4" />
-          Xóa lịch sử
-        </button>
-      </div>
     </div>
+  );
+}
+
+function formatSessionMeta(sess: ChatSession): string {
+  const n = sess.messages.length;
+  const when = new Date(sess.updatedAt);
+  const time = when.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${n} tin · ${time}`;
+}
+
+function IconBtn({
+  children,
+  onClick,
+  label,
+  danger,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  label: string;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        "inline-flex h-7 w-7 items-center justify-center rounded-lg text-ink-soft transition hover:bg-white",
+        danger ? "hover:text-copper" : "hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
