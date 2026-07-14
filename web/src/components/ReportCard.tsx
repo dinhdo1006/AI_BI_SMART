@@ -5,9 +5,11 @@ import {
   Download,
   FileText,
   Newspaper,
+  ThumbsDown,
+  ThumbsUp,
   TriangleAlert,
 } from "lucide-react";
-import { postArticle } from "@/lib/api";
+import { postArticle, postFeedback } from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
 import { useChatStore } from "@/store/chat-store";
@@ -78,10 +80,12 @@ export function ReportCard({
     payload.chart_type || "bar",
   );
   const [writing, setWriting] = useState(false);
+  const [sendingVote, setSendingVote] = useState(false);
 
   const labels = payload.column_labels || {};
   const hasData = (payload.data?.length || 0) > 0 && payload.status === "success";
   const confidence = confidenceBadge(payload.sql_source);
+  const voted = msg?.feedback ?? null;
   const renamed = useMemo(() => {
     return (payload.data || []).map((row) => {
       const out: Record<string, unknown> = {};
@@ -114,6 +118,21 @@ export function ReportCard({
     } finally {
       setWriting(false);
     }
+  }
+
+  async function sendVote(vote: "up" | "down") {
+    if (voted || sendingVote) return;
+    setSendingVote(true);
+    const ok = await postFeedback({
+      domainId,
+      query: payload.query,
+      vote,
+      sqlQuery: payload.sql_query,
+      sqlSource: payload.sql_source,
+      status: payload.status,
+    });
+    setSendingVote(false);
+    if (ok) updateMessage(messageId, { feedback: vote });
   }
 
   if (payload.status === "error" || payload.error) {
@@ -240,7 +259,7 @@ export function ReportCard({
         )}
 
         {hasData && (
-          <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
             <button
               type="button"
               onClick={() => downloadCsv(renamed)}
@@ -272,6 +291,40 @@ export function ReportCard({
               <Newspaper className="h-4 w-4" />
               {writing ? "Đang viết…" : "Viết bài báo"}
             </button>
+
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="mr-1 text-[11px] text-ink-soft/60">
+                {voted ? "Đã ghi nhận" : "Hữu ích?"}
+              </span>
+              <button
+                type="button"
+                disabled={!!voted || sendingVote}
+                onClick={() => void sendVote("up")}
+                aria-label="Hữu ích"
+                className={cn(
+                  "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:opacity-50",
+                  voted === "up"
+                    ? "border-teal/40 bg-teal/10 text-teal"
+                    : "border-line bg-foam text-ink-soft hover:border-teal/30 hover:text-ink",
+                )}
+              >
+                <ThumbsUp className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                disabled={!!voted || sendingVote}
+                onClick={() => void sendVote("down")}
+                aria-label="Không hữu ích"
+                className={cn(
+                  "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:opacity-50",
+                  voted === "down"
+                    ? "border-copper/40 bg-copper-soft text-copper"
+                    : "border-line bg-foam text-ink-soft hover:border-copper/30 hover:text-ink",
+                )}
+              >
+                <ThumbsDown className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
 

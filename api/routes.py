@@ -13,7 +13,7 @@ from core.db_dialect import detect_dialect, dialect_label
 from core.db_executor import DbQueryError, execute_query
 from core.insight_stats import compute_insight_stats
 from core.llm_agent import generate_insight, generate_sql, repair_sql
-from core.logger import log_chat_event
+from core.logger import log_chat_event, log_feedback
 from core.narrative_planner import generate_article
 from core.query_cache import get_cached_response, set_cached_response
 from core.router import (
@@ -167,6 +167,35 @@ class ArticleResponse(BaseModel):
     sections_written: int = 0
     domain_id: str
     question: str
+
+
+class FeedbackRequest(BaseModel):
+    """Body request cho POST /api/v1/feedback."""
+
+    domain_id: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1)
+    vote: Literal["up", "down"]
+    sql_query: str = ""
+    sql_source: str | None = None
+    status: str | None = None
+
+
+class FeedbackResponse(BaseModel):
+    ok: bool = True
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
+    """Lưu thumbs up/down — append JSONL để cải thiện few-shot sau này."""
+    log_feedback(
+        domain_id=request.domain_id,
+        query=request.query,
+        vote=request.vote,
+        sql_query=request.sql_query or "",
+        sql_source=request.sql_source,
+        status=request.status,
+    )
+    return FeedbackResponse(ok=True)
 
 
 @router.get("/domains")

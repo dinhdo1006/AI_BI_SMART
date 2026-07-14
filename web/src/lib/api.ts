@@ -122,4 +122,31 @@ export async function postArticle(params: {
   return (await res.json()) as ArticleResponse;
 }
 
+export async function postFeedback(params: {
+  domainId: string;
+  query: string;
+  vote: "up" | "down";
+  sqlQuery?: string;
+  sqlSource?: string | null;
+  status?: string | null;
+}): Promise<boolean> {
+  try {
+    const res = await fetch(apiUrl("/api/v1/feedback"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        domain_id: params.domainId,
+        query: params.query,
+        vote: params.vote,
+        sql_query: params.sqlQuery || "",
+        sql_source: params.sqlSource ?? null,
+        status: params.status ?? null,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export { API_BASE };

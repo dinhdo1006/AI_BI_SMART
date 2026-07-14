@@ -55,4 +55,6 @@ export type ChatMessage = {
   content: string;
   payload?: ChatResponse;
   article?: ArticleResponse | null;
+  /** Feedback đã gửi: up | down */
+  feedback?: "up" | "down" | null;
 };

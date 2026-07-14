@@ -26,6 +26,7 @@ htmlcov/
 tmp_*.txt
 tmp_*.json
 web.zip
+logs/
 
 # Next.js
 web/node_modules/

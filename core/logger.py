@@ -6,10 +6,17 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 _LOGGER_NAME = "ai_bi.chat"
 _configured = False
+
+# File audit feedback — cải thiện few-shot / đo chất lượng sau này
+_FEEDBACK_DIR = Path(__file__).resolve().parent.parent / "logs"
+_FEEDBACK_FILE = _FEEDBACK_DIR / "feedback.jsonl"
+
+FeedbackVote = Literal["up", "down"]
 
 
 def _ensure_configured() -> logging.Logger:
@@ -63,3 +70,35 @@ def log_chat_event(
         payload["error"] = error[:300]
 
     _ensure_configured().info(json.dumps(payload, ensure_ascii=False))
+
+
+def log_feedback(
+    *,
+    domain_id: str,
+    query: str,
+    vote: FeedbackVote,
+    sql_query: str = "",
+    sql_source: str | None = None,
+    status: str | None = None,
+) -> None:
+    """Ghi feedback user (👍/👎) ra stdout + logs/feedback.jsonl."""
+    payload: dict[str, Any] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "event": "feedback",
+        "domain_id": domain_id,
+        "query": query,
+        "vote": vote,
+    }
+    if sql_source:
+        payload["sql_source"] = sql_source
+    if status:
+        payload["status"] = status
+    if sql_query:
+        payload["sql_query"] = sql_query[:500]
+
+    line = json.dumps(payload, ensure_ascii=False)
+    _ensure_configured().info(line)
+
+    _FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+    with _FEEDBACK_FILE.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
