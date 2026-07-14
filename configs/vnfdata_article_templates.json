@@ -1,0 +1,1336 @@
+{
+  "version": "12.7",
+  "source": "Template AI tự động viết bài_VNFDATA_12.7.docx",
+  "default_structure": [
+    "Mở bài",
+    "Phân tích số liệu",
+    "Nhận định",
+    "Kết luận"
+  ],
+  "templates": [
+    {
+      "id": "market_01",
+      "stt": 1,
+      "category": "market",
+      "name": "Tổng kết thị trường",
+      "cycle": "Ngày/ Tuần/ Tháng /Quý /Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Toàn thị trường",
+      "input_data": "Chỉ số, thanh khoản, độ rộng, khối ngoại, ngành, vốn hóa",
+      "primary_metrics": "VN-Index, GTGD",
+      "secondary_metrics": "Khối ngoại, ETF, tự doanh",
+      "compare_scope": "Kỳ liền trước",
+      "rule": "Kết thúc kỳ giao dịch",
+      "ai_questions": [
+        "Bối cảnh thị trường quốc tế và tin vĩ mô trong nước có gì tác động đến tâm lý nhà đầu tư phiên này?",
+        "Chỉ số đóng cửa ở mốc nào? Thanh khoản và độ rộng thị trường dịch chuyển ra sao so với kỳ trước?",
+        "Nhóm ngành nào đóng vai trò \"đầu kéo\" thúc đẩy, nhóm nào kìm hãm chỉ số?",
+        "Động thái khối ngoại/tự doanh có đồng thuận với xu hướng chung?"
+      ],
+      "context": [
+        "Diễn biến thị trường tài chính quốc tế (Dow Jones, Nasdaq, DXY, giá dầu, Nikkei 225...) trong 24h qua.",
+        "Danh sách các tin tức vĩ mô trong nước vừa công bố (Lãi suất, CPI, tỷ giá...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web/App/Newsletter",
+      "keywords": [
+        "tổng kết thị trường",
+        "tổng quan thị trường",
+        "thị trường hôm nay",
+        "thị trường phiên",
+        "diễn biến thị trường"
+      ]
+    },
+    {
+      "id": "market_02",
+      "stt": 2,
+      "category": "market",
+      "name": "Top cổ phiếu tăng giá",
+      "cycle": "Ngày/Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Cổ phiếu",
+      "input_data": "Giá, % thay đổi",
+      "primary_metrics": "% tăng",
+      "secondary_metrics": "GTGD",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Top 10 tăng mạnh nhất",
+      "ai_questions": [
+        "Top 10 mã tăng mạnh nhất ghi nhận tỷ lệ tăng bao nhiêu?",
+        "Doanh nghiệp của các mã tăng này vừa có thông tin sự kiện hay thông tin cơ bản nào đột biến xuất hiện trên truyền thông?",
+        "Đà tăng này là phiên bùng nổ đầu tiên hay tiếp diễn chuỗi tăng nóng (tăng rướn)?"
+      ],
+      "context": [
+        "Tin tức mới nhất về các doanh nghiệp có mã cổ phiếu tăng mạnh (Tin trúng thầu, ĐHCĐ, ước tính KQKD, chia cổ tức, thay đổi nhân sự cao cấp...).",
+        "Lịch sử biến động giá của mã đó"
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "top tăng",
+        "tăng giá mạnh",
+        "cổ phiếu tăng",
+        "mã tăng mạnh",
+        "top gainer",
+        "tang gia"
+      ]
+    },
+    {
+      "id": "market_03",
+      "stt": 3,
+      "category": "market",
+      "name": "Top cổ phiếu giảm giá",
+      "cycle": "Ngày/Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Cổ phiếu",
+      "input_data": "Giá, % thay đổi",
+      "primary_metrics": "% giảm",
+      "secondary_metrics": "GTGD",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Top 10 giảm mạnh nhất",
+      "ai_questions": [
+        "Những cổ phiếu nào giảm sâu nhất?",
+        "Doanh nghiệp đứng sau các mã này đang đối mặt với thông tin bất lợi hay áp lực kỹ thuật/vĩ mô nào?",
+        "Áp lực bán tháo có đi kèm thanh khoản lớn không? Tín hiệu giải chấp (Margin Call) có xuất hiện?"
+      ],
+      "context": [
+        "Tin tức tiêu cực/tin đồn liên quan đến doanh nghiệp (Bị thanh tra, chậm nộp BCTC, lãnh đạo bán chui, KQKD sụt giảm mạnh...).",
+        "Trạng thái kỹ thuật (Cổ phiếu vừa thủng nền giá, hay áp lực chốt lời tại vùng đỉnh)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "top giảm",
+        "giảm giá mạnh",
+        "cổ phiếu giảm",
+        "mã giảm mạnh",
+        "top loser",
+        "giam gia"
+      ]
+    },
+    {
+      "id": "market_04",
+      "stt": 4,
+      "category": "market",
+      "name": "Top thanh khoản",
+      "cycle": "Ngày/Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Cổ phiếu",
+      "input_data": "GTGD, KLGD",
+      "primary_metrics": "GTGD",
+      "secondary_metrics": "Khối lượng",
+      "compare_scope": "Trung bình 20 phiên",
+      "rule": "Thanh khoản tăng mạnh",
+      "ai_questions": [
+        "Dòng tiền bùng nổ tại các mã nào so với trung bình 20 phiên (đối với ngày) hoặc trung bình 5 kỳ gần nhất (đối với tuần/tháng hoặc trung bình 2 kỳ gần nhất (đối với quý/năm)?",
+        "Doanh nghiệp này đang có \"câu chuyện riêng\" hay game tài chính nào thu hút sự chú ý của dòng tiền lớn?",
+        "Đây là dòng tiền mua gom đẩy giá tích cực hay dòng tiền phân phối, xả hàng quyết liệt?"
+      ],
+      "context": [
+        "Quy mô vốn điều lệ và lượng cổ phiếu lưu hành của doanh nghiệp.",
+        "Câu chuyện cơ bản của doanh nghiệp (Câu chuyện tái cấu trúc, game tăng vốn, phát hành riêng lẻ...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "top thanh khoản",
+        "thanh khoản cao nhất",
+        "gtgd lớn nhất",
+        "top liquidity"
+      ]
+    },
+    {
+      "id": "market_05",
+      "stt": 5,
+      "category": "market",
+      "name": "Top vốn hóa",
+      "cycle": "Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Doanh nghiệp",
+      "input_data": "Vốn hóa",
+      "primary_metrics": "Giá trị vốn hóa",
+      "secondary_metrics": "Thứ hạng",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Thay đổi thứ hạng",
+      "ai_questions": [
+        "Bản đồ vốn hóa có sự hoán đổi vị trí đáng chú ý nào giữa các \"ông lớn\"?",
+        "Động lực nào (giá cổ phiếu tăng, phát hành thêm cổ phiếu...) giúp doanh nghiệp bứt phá vốn hóa?",
+        "Sự thay đổi vốn hóa này phản ánh xu hướng dịch chuyển sức mạnh của nhóm ngành nào vĩ mô?"
+      ],
+      "context": [
+        "Hồ sơ doanh nghiệp (Lĩnh vực hoạt động, vị thế trong ngành, lịch sử lọt rổ VN30...).",
+        "Diễn biến giá cổ phiếu trong mối tương quan với các đối thủ cùng ngành."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "top vốn hóa",
+        "vốn hóa lớn",
+        "market cap",
+        "von hoa"
+      ]
+    },
+    {
+      "id": "market_06",
+      "stt": 6,
+      "category": "market",
+      "name": "Diễn biến VN-Index",
+      "cycle": "Ngày/Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "VN-Index",
+      "input_data": "Điểm số, % thay đổi",
+      "primary_metrics": "Điểm số",
+      "secondary_metrics": "% thay đổi",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Tăng/giảm mạnh, vượt mốc",
+      "ai_questions": [
+        "VN-Index tăng/giảm bao nhiêu điểm? Diễn biến chỉ số trải qua những bước ngoặt nào?",
+        "Chỉ số ứng xử thế nào trước các mốc kháng cự/hỗ trợ tâm lý (như 1200, 1250, 1300,",
+        "1800, 1900...)?",
+        "Thông tin vĩ mô hoặc dòng tiền lớn nào đóng vai trò nút thắt định đoạt xu hướng trong giai đoạn đó?"
+      ],
+      "context": [
+        "Các mốc kháng cự/hỗ trợ kỹ thuật quan trọng dựa trên các đường MA, xu hướng trung hạn.",
+        "Trạng thái tâm lý thị trường phiên trước đó (thận trọng, hoảng loạn hay hưng phấn)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "vn-index",
+        "vnindex",
+        "chỉ số",
+        "diễn biến vn-index",
+        "điểm số vn"
+      ]
+    },
+    {
+      "id": "market_07",
+      "stt": 7,
+      "category": "market",
+      "name": "Thanh khoản thị trường",
+      "cycle": "Ngày/Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Toàn thị trường",
+      "input_data": "GTGD, KLGD",
+      "primary_metrics": "GTGD",
+      "secondary_metrics": "KLGD",
+      "compare_scope": "Trung bình một giai đoạn",
+      "rule": "GTGD tăng/giảm >20%",
+      "ai_questions": [
+        "Giá trị giao dịch đạt bao nhiêu? Mức độ lệch pha (% tăng/giảm) so với trung bình 20 phiên (đối với ngày) hoặc trung bình 5 kỳ gần nhất (đối với tuần/tháng hoặc trung bình 2 kỳ gần nhất (đối với quý/năm) là bao nhiêu?",
+        "Thanh khoản tăng/giảm trong bối cảnh thị trường đang ở vùng đỉnh, vùng đáy hay vùng tích lũy?",
+        "Sự sụt giảm/bùng nổ thanh khoản phản ánh dòng tiền đang đứng ngoài chờ đợi hay đang ồ ạt tháo chạy?"
+      ],
+      "context": [
+        "Lịch sử thanh khoản các giai đoạn đóng băng hoặc bùng nổ trước đó.",
+        "Trạng thái lãi suất margin tại các công ty chứng khoán, thông tin về dòng tiền gửi tiết kiệm."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "thanh khoản thị trường",
+        "gtgd thị trường",
+        "giá trị giao dịch thị trường",
+        "thanh khoản toàn thị trường"
+      ]
+    },
+    {
+      "id": "market_08",
+      "stt": 8,
+      "category": "market",
+      "name": "Độ rộng thị trường",
+      "cycle": "Ngày",
+      "trigger": "Đóng cửa phiên",
+      "target": "Toàn thị trường",
+      "input_data": "Số mã tăng, giảm, trần, sàn",
+      "primary_metrics": "Mã tăng/giảm",
+      "secondary_metrics": "Trần, sàn",
+      "compare_scope": "Phiên trước",
+      "rule": ">70% mã tăng hoặc giảm",
+      "ai_questions": [
+        "Tỷ lệ phân bổ mã Tăng/Giảm phản ánh tâm lý thị trường đang đồng thuận hay phân hóa khốc liệt?",
+        "Sắc tím (trần) hay sắc xanh lơ (sàn) tập trung ở phân khúc nhóm cổ phiếu nào (Bluechips hay Penny)?",
+        "Dòng tiền có xu hướng co cụm vào một vài mã đơn lẻ hay lan tỏa rộng khắp?"
+      ],
+      "context": [
+        "Chỉ số VN30, Midcap, Smallcap để đối chiếu xem dòng tiền tập trung ở phân khúc vốn hóa nào.",
+        "Thống kê số lượng ngành tăng điểm đồng thuận."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "độ rộng",
+        "số mã tăng",
+        "số mã giảm",
+        "breadth",
+        "mã trần",
+        "mã sàn"
+      ]
+    },
+    {
+      "id": "market_09",
+      "stt": 9,
+      "category": "market",
+      "name": "Khối ngoại",
+      "cycle": "Ngày/Tuần/Tháng",
+      "trigger": "Kết thúc kỳ",
+      "target": "NĐT nước ngoài",
+      "input_data": "Mua, bán, mua ròng",
+      "primary_metrics": "Mua ròng",
+      "secondary_metrics": "Theo ngành, cổ phiếu",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Mua/bán ròng lớn",
+      "ai_questions": [
+        "Khối ngoại mua/bán ròng bao nhiêu tỷ? Hành động này có chịu tác động từ áp lực tỷ giá USD/VND hay động thái rút vốn khu vực?",
+        "Top 3 cổ phiếu khối ngoại gom/xả mạnh nhất đang có thông tin nội tại gì nổi bật?",
+        "Chuỗi hành động này đang ở trạng thái kéo dài (phiên thứ X liên tiếp) hay bất ngờ đảo chiều?"
+      ],
+      "context": [
+        "Xu hướng dòng vốn ngoại tại các thị trường cận biên/mới nổi khu vực châu Á (Thái Lan, Indonesia, Đài Loan...).",
+        "Biến động tỷ giá USD/VND trong nước để giải thích động cơ dòng vốn."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "khối ngoại",
+        "nhà đầu tư nước ngoài",
+        "foreign",
+        "mua ròng ngoại",
+        "bán ròng ngoại"
+      ]
+    },
+    {
+      "id": "market_10",
+      "stt": 10,
+      "category": "market",
+      "name": "Tự doanh",
+      "cycle": "Ngày/Tuần/Tháng",
+      "trigger": "Kết thúc kỳ",
+      "target": "CTCK",
+      "input_data": "Mua, bán, mua ròng",
+      "primary_metrics": "Mua ròng",
+      "secondary_metrics": "Theo ngành",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Giao dịch đột biến",
+      "ai_questions": [
+        "Khối tự doanh đang mua hay bán ròng tổng cộng bao nhiêu?",
+        "Hành động của tự doanh mang tính chất nâng đỡ chỉ số (gom rổ VN30) hay thực hiện nghiệp vụ phòng vệ arbitrage với phái sinh?",
+        "Tâm điểm gom/xả của khối tự doanh gọi tên nhóm cổ phiếu nào?"
+      ],
+      "context": [
+        "Trạng thái danh mục tự doanh của các CTCK lớn (SSI, VND, HCM, VCI...) nếu có báo cáo gần nhất.",
+        "Biến động thị trường phái sinh (VN30F1M) để đối chiếu nghiệp vụ phòng vệ (hedging)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "tự doanh",
+        "proprietary",
+        "ctck tự doanh"
+      ]
+    },
+    {
+      "id": "market_11",
+      "stt": 11,
+      "category": "market",
+      "name": "ETF",
+      "cycle": "Ngày/Tuần/Tháng",
+      "trigger": "Kết thúc kỳ",
+      "target": "Quỹ ETF",
+      "input_data": "NAV, tạo/rút CCQ",
+      "primary_metrics": "Dòng vốn",
+      "secondary_metrics": "NAV",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Hút/rút vốn mạnh",
+      "ai_questions": [
+        "Các quỹ ETF lớn đang ở trạng thái hút vốn hay rút vốn ròng?",
+        "Đợt biến động này nằm trong lịch cơ cấu định kỳ hay là dòng tiền chủ động từ nhà đầu tư quốc tế (ví dụ: Thái Lan, Đài Loan)?",
+        "Danh mục rổ chỉ số nào (Diamond, Finlead, VN30) chịu tác động mạnh nhất?"
+      ],
+      "context": [
+        "Ngày đến hạn cơ cấu danh mục của các quỹ ETF (Review định kỳ tháng/quý).",
+        "Tỷ lệ chiết khấu/thặng dư (Premium/Discount) của giá CCQ so với NAV để biết áp lực rút/nạp vốn."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "etf",
+        "quỹ etf",
+        "nav etf",
+        "rút vốn etf",
+        "hút vốn etf"
+      ]
+    },
+    {
+      "id": "market_12",
+      "stt": 12,
+      "category": "market",
+      "name": "Cổ phiếu tác động VN-Index",
+      "cycle": "Ngày/Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Cổ phiếu",
+      "input_data": "Điểm đóng góp",
+      "primary_metrics": "Điểm số",
+      "secondary_metrics": "% ảnh hưởng",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Đóng góp lớn",
+      "ai_questions": [
+        "Những mã trụ nào đóng vai trò \"công thần\" giữ nhịp hoặc \"tội đồ\" kéo lùi chỉ số?",
+        "Tin tức nội tại nào thúc đẩy sự bứt phá hoặc sa sút của chính nhóm cổ phiếu trụ này?",
+        "Áp lực/động lực từ nhóm trụ này có phản ánh đúng dòng tiền thực tế ở phần còn lại của thị trường?"
+      ],
+      "context": [
+        "Tỷ trọng (weight) của các mã vốn hóa lớn (VCB, BID, FPT, VHM, VIC...) trong công thức tính chỉ số.",
+        "Tin tức ngành cốt lõi của các mã trụ (Tin tín dụng ngân hàng, giá đất, kết nối hạ tầng...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Top đóng góp",
+        "Phân tích",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "đóng góp vn-index",
+        "tác động vn-index",
+        "kéo chỉ số",
+        "điểm đóng góp",
+        "mã trụ"
+      ]
+    },
+    {
+      "id": "market_13",
+      "stt": 13,
+      "category": "market",
+      "name": "Diễn biến nhóm ngành",
+      "cycle": "Ngày/Tuần/Tháng",
+      "trigger": "Kết thúc kỳ",
+      "target": "Ngành",
+      "input_data": "% tăng/giảm, GTGD",
+      "primary_metrics": "% tăng",
+      "secondary_metrics": "GTGD",
+      "compare_scope": "Đầu kỳ",
+      "rule": "Một ngành vượt trội",
+      "ai_questions": [
+        "Nhóm ngành nào ghi nhận mức tăng giá và thanh khoản vượt trội nhất toàn thị trường?",
+        "Yếu tố vĩ mô ngành hoặc biến động giá hàng hóa thế giới nào đang là bệ phóng cho nhóm ngành này bùng nổ?",
+        "Đà tăng có tính lan tỏa đồng thuận toàn ngành hay chỉ tập trung cục bộ ở 1-2 mã đầu ngành?"
+      ],
+      "context": [
+        "Các chu kỳ kinh doanh của ngành (Mùa xây dựng, mùa cao điểm xuất khẩu, giá hàng hóa thế giới: giá thép, giá dầu, giá lợn...).",
+        "Chính sách vĩ mô tác động trực tiếp đến ngành (Sửa luật đất đai, quy hoạch điện VIII, gói tín dụng...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "nhóm ngành",
+        "diễn biến ngành",
+        "sector",
+        "ngành tăng",
+        "ngành vượt trội"
+      ]
+    },
+    {
+      "id": "market_14",
+      "stt": 14,
+      "category": "market",
+      "name": "Xu hướng thị trường",
+      "cycle": "Tuần/Tháng/Quý/Năm",
+      "trigger": "Kết thúc kỳ",
+      "target": "Toàn thị trường",
+      "input_data": "Chuỗi dữ liệu lịch sử",
+      "primary_metrics": "Chỉ số",
+      "secondary_metrics": "Thanh khoản",
+      "compare_scope": "Tuần/Tháng/Quý/Năm",
+      "rule": "Hình thành xu hướng",
+      "ai_questions": [
+        "VN-Index đang vận động trong chu kỳ xu hướng dài hạn nào (Uptrend, Downtrend, Sideway)?",
+        "Đường kỹ thuật dài hạn (MA50, MA200) bị phá vỡ hay được bảo toàn thành công?",
+        "Bối cảnh vĩ mô nền kinh tế có tương thích và ủng hộ cho xu hướng dài hạn này tiếp diễn?"
+      ],
+      "context": [
+        "Các báo cáo chiến lược thị trường của các định chế tài chính lớn (SSI Research, HSC, Vietcap...).",
+        "Các chu kỳ kinh tế lớn (Chu kỳ nới lỏng tiền tệ, chu kỳ thắt chặt)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "800-1.000",
+      "channel": "Web",
+      "keywords": [
+        "xu hướng thị trường",
+        "uptrend",
+        "downtrend",
+        "sideway",
+        "xu hướng dài hạn"
+      ]
+    },
+    {
+      "id": "market_15",
+      "stt": 15,
+      "category": "market",
+      "name": "Kỷ lục thị trường",
+      "cycle": "Theo sự kiện",
+      "trigger": "Khi phát sinh",
+      "target": "Toàn thị trường",
+      "input_data": "Mọi dữ liệu",
+      "primary_metrics": "Chỉ tiêu lập kỷ lục",
+      "secondary_metrics": "-",
+      "compare_scope": "Dữ liệu lịch sử",
+      "rule": "Cao nhất/thấp nhất",
+      "ai_questions": [
+        "Cột mốc lịch sử nào (Điểm số, Thanh khoản, Chuỗi giao dịch...) vừa chính thức bị xô đổ?",
+        "Bối cảnh đặc biệt nào (Khủng hoảng, thiên tai, chính sách đột biến hoặc dòng tiền điên) đã thúc đẩy thị trường thiết lập kỷ lục mới này?",
+        "Ý nghĩa lịch sử và hệ quả tâm lý lâu dài của cột mốc này đối với giới đầu tư là gì?"
+      ],
+      "context": [
+        "Toàn bộ cơ sở dữ liệu lịch sử của thị trường chứng khoán Việt Nam từ năm 2000 đến nay (Mốc đỉnh 1.500 điểm năm 2022, các phiên sụp đổ lịch sử do Covid-19, bầu Kiên...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Dữ liệu",
+        "So sánh",
+        "Ý nghĩa"
+      ],
+      "has_chart": true,
+      "word_count": "700-1.000",
+      "channel": "Web",
+      "keywords": [
+        "kỷ lục thị trường",
+        "cao nhất lịch sử",
+        "thấp nhất lịch sử",
+        "mốc lịch sử"
+      ]
+    },
+    {
+      "id": "company_01",
+      "stt": 1,
+      "category": "company",
+      "name": "Tổng quan kết quả kinh doanh",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Doanh thu, LNST, EPS, biên LN",
+      "primary_metrics": "LNST",
+      "secondary_metrics": "Doanh thu, EPS",
+      "compare_scope": "Cùng kỳ, kế hoạch năm",
+      "rule": "Công bố BCTC",
+      "ai_questions": [
+        "Doanh thu, LNST đạt bao nhiêu và tăng trưởng thế nào so với cùng kỳ và quý liền trước?",
+        "Doanh nghiệp đã hoàn thành bao nhiêu % kế hoạch năm sau quý này?",
+        "Biên lợi nhuận gộp dịch chuyển theo hướng tích cực hay tiêu cực? Biến động này đồng thuận hay ngược chiều với bức tranh chung của ngành?"
+      ],
+      "context": [
+        "Nghị quyết ĐHĐCĐ (Chỉ tiêu doanh thu, LNST kế hoạch của năm).",
+        "Dự báo hoặc diễn biến chung của ngành trong quý (ví dụ: Ngành thép phục hồi, ngành bán lẻ gặp khó...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "700-900",
+      "channel": "Web",
+      "keywords": [
+        "tổng quan kết quả",
+        "kết quả kinh doanh",
+        "kqkd tổng quan",
+        "bctc tổng quan"
+      ]
+    },
+    {
+      "id": "company_02",
+      "stt": 2,
+      "category": "company",
+      "name": "Doanh thu",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Doanh thu",
+      "primary_metrics": "Doanh thu",
+      "secondary_metrics": "Tăng trưởng",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Tổng doanh thu biến động [±20%] đến từ mảng kinh doanh cốt lõi (Core business) hay hoạt động tài chính/bán tài sản?",
+        "Yếu tố nào đằng sau sự thay đổi này (Do mở rộng quy mô, tăng giá bán, hay do sụt giảm sản lượng tiêu thụ)?",
+        "Sự thay đổi doanh thu này có tính chu kỳ (Seasonal effect) đặc thù của doanh nghiệp hay không?"
+      ],
+      "context": [
+        "Cơ cấu doanh thu theo mảng kinh doanh (Sản phẩm cốt lõi vs. Doanh thu tài chính/bất thường).",
+        "Biến động sản lượng tiêu thụ hoặc giá bán sản phẩm trên thị trường."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "doanh thu",
+        "revenue",
+        "biến động doanh thu",
+        "doanh thu quý",
+        "doanh thu năm"
+      ]
+    },
+    {
+      "id": "company_03",
+      "stt": 3,
+      "category": "company",
+      "name": "Lợi nhuận sau thuế",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "LNST",
+      "primary_metrics": "LNST",
+      "secondary_metrics": "Biên LN",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "LNST tăng/giảm mạnh [±20%] chịu tác động lớn nhất từ yếu tố nào (Biên độ giá vốn thu hẹp, gánh nặng chi phí lãi vay, hay triệt tiêu chi phí bán hàng)?",
+        "Doanh nghiệp giải trình thế nào về mức biến động này?",
+        "Mức lợi nhuận này có giúp cải thiện hiệu suất EPS của cổ phiếu trong ngắn hạn?"
+      ],
+      "context": [
+        "Văn bản giải trình biến động kết quả kinh doanh của doanh nghiệp gửi Ủy ban Chứng khoán (nếu có).",
+        "Biến động các chi phí lớn: Chi phí lãi vay (vốn), chi phí bán hàng (logistics, quảng cáo)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "lợi nhuận sau thuế",
+        "lnst",
+        "lợi nhuận ròng",
+        "net profit",
+        "biến động lnst"
+      ]
+    },
+    {
+      "id": "company_04",
+      "stt": 4,
+      "category": "company",
+      "name": "Lợi nhuận kỷ lục",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "LNST lịch sử",
+      "primary_metrics": "LNST",
+      "secondary_metrics": "CAGR",
+      "compare_scope": "Lịch sử",
+      "rule": "Cao nhất/thấp nhất",
+      "ai_questions": [
+        "Mốc LNST kỷ lục mới vừa thiết lập cụ thể là bao nhiêu? Cột mốc này xô đổ kỷ lục cũ được thiết lập vào thời gian nào?",
+        "Động lực \"vô tiền khoáng hậu\" nào đã đẩy lợi nhuận doanh nghiệp chạm mức đỉnh lịch sử này (Chu kỳ ngành lập đỉnh, bán công ty con, hay mở rộng công suất)?",
+        "Mức lợi nhuận kỷ lục này có tính bền vững (Sustainable) hay chỉ mang tính thời điểm?"
+      ],
+      "context": [
+        "Cơ sở dữ liệu LNST các quý/năm trong lịch sử hoạt động của doanh nghiệp.",
+        "Các sự kiện mang tính bước ngoặt (Thiên thời vĩ mô, chu kỳ siêu hàng hóa, hoặc sáp nhập M&A lớn)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "lợi nhuận kỷ lục",
+        "lnst kỷ lục",
+        "lãi kỷ lục"
+      ]
+    },
+    {
+      "id": "company_05",
+      "stt": 5,
+      "category": "company",
+      "name": "Hoàn thành kế hoạch năm",
+      "cycle": "Quý",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Kế hoạch, thực hiện",
+      "primary_metrics": "% hoàn thành",
+      "secondary_metrics": "LNST",
+      "compare_scope": "Kế hoạch",
+      "rule": ">100%, <50%",
+      "ai_questions": [
+        "Tỷ lệ hoàn thành kế hoạch [>100% hoặc <50%] sau kỳ báo cáo phản ánh điều gì về năng lực dự báo của ban lãnh đạo?",
+        "Doanh nghiệp về đích sớm nhờ tăng trưởng thực lực hay nhờ thị trường có biến động thuận lợi nằm ngoài dự tính?",
+        "Trong các quý còn lại, áp lực tăng trưởng để đạt hoặc giữ vững kế hoạch là nặng hay nhẹ?"
+      ],
+      "context": [
+        "Lịch sử hoàn thành kế hoạch kinh doanh của doanh nghiệp trong 3 năm gần nhất (Doanh nghiệp có truyền thống đặt kế hoạch thận trọng hay thích \"vẽ\" kế hoạch cao?)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "hoàn thành kế hoạch",
+        "kế hoạch năm",
+        "% kế hoạch"
+      ]
+    },
+    {
+      "id": "company_06",
+      "stt": 6,
+      "category": "company",
+      "name": "Xu hướng lợi nhuận",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "LNST nhiều năm",
+      "primary_metrics": "LNST",
+      "secondary_metrics": "CAGR",
+      "compare_scope": "3-5 năm",
+      "rule": "Xu hướng rõ rệt",
+      "ai_questions": [
+        "Chuỗi tăng trưởng/suy thoái tăng liên tiếp trong mấy kỳ (quý/năm)? Tốc độ tăng trưởng kép hàng năm (CAGR) đang dịch chuyển ra sao?",
+        "Xu hướng này cho thấy doanh nghiệp đang nằm trong giai đoạn nào của chu kỳ phát triển (Mở rộng bùng nổ, bão hòa, hay suy thoái)?",
+        "Có tín hiệu nào cho thấy xu hướng này sắp sửa đảo chiều hay chưa?"
+      ],
+      "context": [
+        "Chuỗi số liệu LNST theo quý/năm của 3-5 năm liên tiếp.",
+        "Giai đoạn mở rộng công suất (Nhà máy mới đi vào hoạt động, mở rộng chuỗi cửa hàng...)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "700-900",
+      "channel": "Web",
+      "keywords": [
+        "xu hướng lợi nhuận",
+        "cagr lợi nhuận",
+        "chuỗi tăng trưởng lợi nhuận"
+      ]
+    },
+    {
+      "id": "company_07",
+      "stt": 7,
+      "category": "company",
+      "name": "Top doanh thu",
+      "cycle": "Quý/Năm",
+      "trigger": "Đủ dữ liệu ngành",
+      "target": "Doanh nghiệp",
+      "input_data": "Doanh thu",
+      "primary_metrics": "Doanh thu",
+      "secondary_metrics": "Tăng trưởng",
+      "compare_scope": "Cùng ngành",
+      "rule": "Top 10",
+      "ai_questions": [
+        "Doanh nghiệp nào đang nắm giữ vị trí \"Quán quân doanh thu\" trong ngành và khoảng cách với nhóm bám đuổi là bao nhiêu?",
+        "Sự thay đổi thứ hạng trong Top 10 phản ánh doanh nghiệp nào đang mở rộng thị phần quyết liệt nhất?",
+        "Doanh thu lớn có đồng nghĩa với vị thế khỏe mạnh, hay đang phải đánh đổi bằng chi phí bán hàng quá lớn?"
+      ],
+      "context": [
+        "Thị phần của các doanh nghiệp trong ngành (nếu có báo cáo ngành).",
+        "Danh sách phân loại nhóm ngành tiêu chuẩn (ICB)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "top doanh thu",
+        "quán quân doanh thu",
+        "xếp hạng doanh thu",
+        "top 10 doanh thu"
+      ]
+    },
+    {
+      "id": "company_08",
+      "stt": 8,
+      "category": "company",
+      "name": "Top lợi nhuận",
+      "cycle": "Quý/Năm",
+      "trigger": "Đủ dữ liệu ngành",
+      "target": "Doanh nghiệp",
+      "input_data": "LNST",
+      "primary_metrics": "LNST",
+      "secondary_metrics": "Tăng trưởng",
+      "compare_scope": "Cùng ngành",
+      "rule": "Top 10",
+      "ai_questions": [
+        "Ai là \"cỗ máy in tiền\" hiệu quả nhất ngành dựa trên con số LNST tuyệt đối?",
+        "Giữa doanh nghiệp dẫn đầu doanh thu và doanh nghiệp dẫn đầu lợi nhuận có phải là một? Nếu không, lý do là gì (do biên lợi nhuận vượt trội)?",
+        "Top 10 lợi nhuận ngành đang phân hóa hay đồng thuận tăng trưởng?"
+      ],
+      "context": [
+        "Biên lợi nhuận ròng trung bình của toàn ngành để làm thước đo so sánh hiệu quả."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "top lợi nhuận",
+        "top lnst",
+        "xếp hạng lợi nhuận",
+        "top 10 lợi nhuận"
+      ]
+    },
+    {
+      "id": "company_09",
+      "stt": 9,
+      "category": "company",
+      "name": "Top EPS",
+      "cycle": "Quý/Năm",
+      "trigger": "Đủ dữ liệu",
+      "target": "Doanh nghiệp",
+      "input_data": "EPS",
+      "primary_metrics": "EPS",
+      "secondary_metrics": "Tăng trưởng",
+      "compare_scope": "Cùng ngành",
+      "rule": "Top 10",
+      "ai_questions": [
+        "Những doanh nghiệp nào sở hữu chỉ số EPS cao nhất ngành/thị trường?",
+        "EPS cao là do quy mô lợi nhuận lớn thực chất hay do cơ cấu cô đặc (lượng cổ phiếu lưu hành thấp)?",
+        "Sự tăng trưởng EPS trong kỳ có tương xứng với mức định giá P/E hiện tại của cổ phiếu trên thị trường?"
+      ],
+      "context": [
+        "Khối lượng cổ phiếu lưu hành (để AI hiểu vì sao lãi lớn nhưng EPS thấp do bị pha loãng)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "top eps",
+        "eps cao",
+        "xếp hạng eps"
+      ]
+    },
+    {
+      "id": "company_10",
+      "stt": 10,
+      "category": "company",
+      "name": "Chất lượng lợi nhuận",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Doanh thu, LNST, biên LN, CFO",
+      "primary_metrics": "LNST",
+      "secondary_metrics": "CFO",
+      "compare_scope": "Cùng kỳ",
+      "rule": "LNST tăng nhưng CFO âm...",
+      "ai_questions": [
+        "Vì sao LNST tăng trưởng mạnh nhưng dòng tiền kinh doanh (CFO) lại âm nặng?",
+        "Lợi nhuận của doanh nghiệp có đang bị \"chôn\" ở các khoản phải thu chiếm dụng hoặc hàng tồn kho ứ đọng?",
+        "Lợi nhuận này đến từ hoạt động cốt lõi mang tiền về hay chỉ là các bút toán hạch toán kế toán (Non-cash profit)?"
+      ],
+      "context": [
+        "Báo cáo lưu chuyển tiền tệ (Dòng tiền từ hoạt động kinh doanh",
+        "CFO).",
+        "Các khoản mục: Phải thu và Hàng tồn kho biến động trong kỳ."
+      ],
+      "structure": [
+        "Mở bài",
+        "Chỉ tiêu",
+        "Nhận định"
+      ],
+      "has_chart": true,
+      "word_count": "800-1.000",
+      "channel": "Web",
+      "keywords": [
+        "chất lượng lợi nhuận",
+        "cfo",
+        "dòng tiền kinh doanh",
+        "lợi nhuận ảo"
+      ]
+    },
+    {
+      "id": "company_11",
+      "stt": 11,
+      "category": "company",
+      "name": "Tổng tài sản",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Tổng tài sản",
+      "primary_metrics": "Tổng tài sản",
+      "secondary_metrics": "Tăng trưởng",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Quy mô tài sản thay đổi mạnh [±20%] tập trung vào danh mục nào (Tăng tài sản ngắn hạn hay đầu tư tài sản dài hạn)?",
+        "Việc phình to tài sản có đi kèm với việc gia tăng nợ phải trả, hay được tài trợ bằng vốn chủ sở hữu?",
+        "Sự thay đổi quy mô này phản ánh doanh nghiệp đang co cụm phòng thủ hay đang mở rộng đầu tư?"
+      ],
+      "context": [
+        "Cơ cấu tài sản (Tài sản ngắn hạn vs. Tài sản dài hạn)",
+        "Tiến độ đầu tư các dự án lớn (Xây dựng dở dang cơ bản)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "tổng tài sản",
+        "quy mô tài sản",
+        "biến động tài sản"
+      ]
+    },
+    {
+      "id": "company_12",
+      "stt": 12,
+      "category": "company",
+      "name": "Nợ phải trả",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Nợ phải trả",
+      "primary_metrics": "Tổng nợ",
+      "secondary_metrics": "Nợ vay",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Tổng nợ phải trả biến động ra sao? Tỷ lệ Nợ phải trả / Vốn chủ sở hữu đang ở mức an toàn hay báo động?",
+        "Áp lực nợ tập trung ở nợ ngắn hạn (gây rủi ro thanh khoản tức thì) hay nợ dài hạn?",
+        "Doanh nghiệp có áp lực đáo hạn trái phiếu hay nợ chiếm dụng của nhà cung cấp trong ngắn hạn?"
+      ],
+      "context": [
+        "Cấu trúc nợ (Nợ ngắn hạn vs. Nợ dài hạn).",
+        "Danh sách các chủ nợ lớn hoặc thông tin về các lô trái phiếu doanh nghiệp sắp đến hạn."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "nợ phải trả",
+        "tổng nợ phải trả"
+      ]
+    },
+    {
+      "id": "company_13",
+      "stt": 13,
+      "category": "company",
+      "name": "Nợ vay tài chính",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Nợ vay ngắn, dài hạn",
+      "primary_metrics": "Nợ vay",
+      "secondary_metrics": "Tiền mặt",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Doanh nghiệp vay thêm hay đã trả bớt nợ vay tài chính (ngân hàng + trái phiếu) trong kỳ?",
+        "Chi phí lãi vay ăn mòn bao nhiêu % lợi nhuận gộp của doanh nghiệp?",
+        "Đòn bẩy nợ vay này có phù hợp với biên lợi nhuận của doanh nghiệp hiện tại để tránh rủi ro vỡ nợ?"
+      ],
+      "context": [
+        "Biến động lãi suất vay ngân hàng trên thị trường.",
+        "Tỷ lệ bao phủ lãi vay (EBIT/Chi phí lãi vay)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "nợ vay tài chính",
+        "nợ vay ngắn hạn",
+        "nợ vay dài hạn",
+        "đòn bẩy nợ"
+      ]
+    },
+    {
+      "id": "company_14",
+      "stt": 14,
+      "category": "company",
+      "name": "Tiền và tiền gửi",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Tiền, tiền gửi",
+      "primary_metrics": "Tiền mặt",
+      "secondary_metrics": "Đầu tư tài chính",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Lượng tiền và tương đương tiền + tiền gửi kỳ hạn ngắn đạt bao nhiêu? Doanh nghiệp tích trữ tiền mặt lớn phản ánh chiến lược gì?",
+        "Doanh thu tài chính từ tiền gửi (lãi tiền gửi) đóng góp bao nhiêu vào tổng lợi nhuận quý này?",
+        "Lượng \"tiền tươi thóc thật\" này có đủ đảm bảo khả năng thanh toán tức thời cho các khoản nợ vay ngắn hạn không?"
+      ],
+      "context": [
+        "Trần lãi suất tiền gửi ngân hàng trong kỳ.",
+        "Đối chiếu với nợ vay ngắn hạn để xem tiền mặt có đủ bao phủ nợ đến hạn."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "tiền và tiền gửi",
+        "tương đương tiền",
+        "tiền gửi doanh nghiệp"
+      ]
+    },
+    {
+      "id": "company_15",
+      "stt": 15,
+      "category": "company",
+      "name": "Hàng tồn kho",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Hàng tồn kho",
+      "primary_metrics": "Giá trị tồn kho",
+      "secondary_metrics": "Vòng quay",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Giá trị hàng tồn kho tăng/giảm mạnh do doanh nghiệp chủ động gom hàng tích trữ đón sóng giá tăng hay do hàng hóa bị ế ẩm, không tiêu thụ được?",
+        "Doanh nghiệp có phải trích lập dự phòng giảm giá hàng tồn kho lớn đè nặng lên chi phí không?",
+        "Hệ số vòng quay hàng tồn kho (Inventory Turnover) đang cải thiện hay chậm lại?"
+      ],
+      "context": [
+        "Các khoản trích lập dự phòng giảm giá hàng tồn kho.",
+        "Đặc thù vòng quay tồn kho ngành (Bất động sản tích lũy quỹ đất khác với Sản xuất tích lũy nguyên liệu)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "hàng tồn kho",
+        "tồn kho",
+        "inventory"
+      ]
+    },
+    {
+      "id": "company_16",
+      "stt": 16,
+      "category": "company",
+      "name": "Phải thu khách hàng",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Phải thu",
+      "primary_metrics": "Phải thu",
+      "secondary_metrics": "Dự phòng",
+      "compare_scope": "Cùng kỳ",
+      "rule": "±20%",
+      "ai_questions": [
+        "Khoản phải thu phình to phản ánh doanh nghiệp đang bị đối tác chiếm dụng vốn quá lớn hay do nới lỏng chính sách bán hàng để kích cầu?",
+        "Tỷ lệ Dự phòng phải thu khó đòi trên tổng phải thu có ở mức rủi ro?",
+        "Tình trạng này có nguy cơ biến thành nợ xấu ăn mòn vốn chủ sở hữu trong tương lai không?"
+      ],
+      "context": [],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "500-700",
+      "channel": "Web",
+      "keywords": [
+        "phải thu",
+        "phải thu khách hàng",
+        "receivable"
+      ]
+    },
+    {
+      "id": "company_17",
+      "stt": 17,
+      "category": "company",
+      "name": "Top doanh nghiệp nhiều tiền mặt",
+      "cycle": "Quý/Năm",
+      "trigger": "Đủ dữ liệu",
+      "target": "Doanh nghiệp",
+      "input_data": "Tiền và tương đương tiền",
+      "primary_metrics": "Tiền mặt",
+      "secondary_metrics": "Tiền gửi",
+      "compare_scope": "Cùng ngành",
+      "rule": "Top 10",
+      "ai_questions": [
+        "Những doanh nghiệp nào đang sở hữu lượng tiền và tiền gửi lớn nhất toàn ngành/thị trường?",
+        "Xu hướng tích trữ tiền mặt này tập trung ở nhóm ngành có đặc thù gì (Ví dụ: Tiêu dùng, Tiện ích, Tổng công ty lớn)?",
+        "Doanh nghiệp nào có tỷ lệ Tiền mặt / Tổng tài sản cao nhất, thể hiện tính phòng thủ tuyệt đối?"
+      ],
+      "context": [
+        "Xếp hạng mức độ dồi dào tài chính của các doanh nghiệp trong cùng nhóm ngành lớn."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "nhiều tiền mặt",
+        "top tiền mặt",
+        "tiền mặt lớn nhất",
+        "top doanh nghiệp nhiều tiền"
+      ]
+    },
+    {
+      "id": "company_18",
+      "stt": 18,
+      "category": "company",
+      "name": "Top doanh nghiệp nhiều nợ vay",
+      "cycle": "Quý/Năm",
+      "trigger": "Đủ dữ liệu",
+      "target": "Doanh nghiệp",
+      "input_data": "Nợ vay",
+      "primary_metrics": "Nợ vay",
+      "secondary_metrics": "D/E",
+      "compare_scope": "Cùng ngành",
+      "rule": "Top 10",
+      "ai_questions": [
+        "Những doanh nghiệp nào đang ôm khối nợ vay tài chính lớn nhất hệ thống?",
+        "Tỷ lệ đòn bẩy D/E của các doanh nghiệp này có vượt mức báo động đỏ [Ví dụ: >2 lần] hay không?",
+        "Khối nợ vay khổng lồ này tập trung ở ngành thâm dụng vốn nào (Bất động sản, Năng lượng, Hạ tầng)?"
+      ],
+      "context": [
+        "Hệ số D/E (Nợ vay / Vốn chủ sở hữu) trung bình an toàn của ngành để đối chiếu."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "nhiều nợ vay",
+        "top nợ vay",
+        "nợ vay lớn nhất",
+        "top doanh nghiệp nhiều nợ"
+      ]
+    },
+    {
+      "id": "company_19",
+      "stt": 19,
+      "category": "company",
+      "name": "Top tổng tài sản",
+      "cycle": "Quý/Năm",
+      "trigger": "Đủ dữ liệu",
+      "target": "Doanh nghiệp",
+      "input_data": "Tổng tài sản",
+      "primary_metrics": "Tổng tài sản",
+      "secondary_metrics": "Tăng trưởng",
+      "compare_scope": "Cùng ngành",
+      "rule": "Top 10",
+      "ai_questions": [
+        "Bản đồ quy mô tổng tài sản chứng kiến sự bứt phá của cái tên nào trong Top 10?",
+        "Sự phình to tài sản của các \"ông lớn\" đầu bảng đến từ việc sáp nhập, đầu tư dự án mới hay đánh giá lại tài sản?",
+        "Doanh nghiệp nào có tốc độ tăng trưởng tài sản nhanh nhất trong kỳ?"
+      ],
+      "context": [
+        "Danh sách xếp hạng quy mô tài sản của toàn bộ các doanh nghiệp niêm yết theo nhóm (Phi tài chính vs. Tài chính/Ngân hàng)."
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "600-800",
+      "channel": "Web",
+      "keywords": [
+        "top tổng tài sản",
+        "xếp hạng tài sản",
+        "top 10 tài sản"
+      ]
+    },
+    {
+      "id": "company_20",
+      "stt": 20,
+      "category": "company",
+      "name": "Sức khỏe tài chính",
+      "cycle": "Quý/Năm",
+      "trigger": "Công bố BCTC",
+      "target": "Doanh nghiệp",
+      "input_data": "Tài sản, nợ, vốn CSH, tiền, CFO",
+      "primary_metrics": "Vốn CSH",
+      "secondary_metrics": "D/E, Current Ratio",
+      "compare_scope": "Cùng kỳ",
+      "rule": "Nợ tăng nhanh, tiền giảm...",
+      "ai_questions": [
+        "Sức khỏe tài chính tổng thể của doanh nghiệp đang dịch chuyển theo xu hướng cải thiện hay suy yếu nghiêm trọng?",
+        "Điểm nghẽn lớn nhất trong cấu trúc tài sản - nguồn vốn của doanh nghiệp hiện tại là gì (Nợ ngắn hạn ăn lạm vào tài sản dài hạn, hay tiền mặt cạn kiệt)?",
+        "Khả năng phòng thủ và chống chịu của doanh nghiệp trước các cú sốc thắt chặt tín dụng hoặc tăng lãi suất ở mức nào?"
+      ],
+      "context": [
+        "Các hệ số an toàn: Current Ratio (Thanh toán hiện hành), Quick Ratio (Thanh toán nhanh)"
+      ],
+      "structure": [
+        "Mở bài",
+        "Phân tích số liệu",
+        "Nhận định",
+        "Kết luận"
+      ],
+      "has_chart": true,
+      "word_count": "900-1.200",
+      "channel": "Web",
+      "keywords": [
+        "sức khỏe tài chính",
+        "current ratio",
+        "d/e",
+        "thanh khoản doanh nghiệp"
+      ]
+    }
+  ]
+}

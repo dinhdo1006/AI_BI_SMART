@@ -5,10 +5,16 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime
 from typing import Any, Callable
 
 from langchain_ollama import OllamaLLM
 
+from core.article_templates import (
+    classify_article_template,
+    format_template_brief,
+    outline_from_template,
+)
 from core.insight_stats import compute_insight_stats
 from core.ollama_client import make_ollama_llm
 
@@ -144,8 +150,39 @@ def _default_outline_vietstock(question: str, domain_name: str) -> dict[str, Any
 
 def _default_outline(question: str, domain_name: str, domain_id: str = "") -> dict[str, Any]:
     if is_finance_domain(domain_name) or is_finance_domain(domain_id):
+        matched = classify_article_template(question)
+        if matched:
+            return outline_from_template(
+                matched, question=question, domain_name=domain_name
+            )
         return _default_outline_vietstock(question, domain_name)
     return _default_outline_bi(question, domain_name)
+
+
+def _report_timestamp(now: datetime | None = None) -> str:
+    return (now or datetime.now()).strftime("%d/%m/%Y %H:%M")
+
+
+def stamp_article_timestamp(article: str, when: datetime | None = None) -> str:
+    """Chèn dòng Thời gian tạo báo cáo sau tiêu đề # (nếu chưa có)."""
+    text = (article or "").strip()
+    stamp = f"*Thời gian tạo báo cáo: {_report_timestamp(when)}*"
+    if "Thời gian tạo báo cáo:" in text:
+        return text
+
+    lines = text.splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("# ") and not stripped.startswith("##"):
+            insert_at = i + 1
+            break
+    # Bỏ dòng trống ngay sau tiêu đề rồi chèn stamp + blank
+    while insert_at < len(lines) and not lines[insert_at].strip():
+        insert_at += 1
+    block = [stamp, ""]
+    lines[insert_at:insert_at] = block
+    return "\n".join(lines).strip()
 
 
 def outline_plan(
@@ -164,6 +201,12 @@ def outline_plan(
     style = "vietstock" if finance else "bi"
     stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
     fallback = _default_outline(question, domain_name, domain_id)
+
+    matched = classify_article_template(question) if finance else None
+    if matched:
+        return outline_from_template(
+            matched, question=question, domain_name=domain_name
+        )
 
     if finance:
         role = (
@@ -257,6 +300,7 @@ def write_sections(
     stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
     sample_json = json.dumps(sample_rows[:_MAX_SAMPLE_ROWS], ensure_ascii=False, indent=2)
     vietstock = (outline.get("style") or "") == "vietstock"
+    template_brief = format_template_brief(outline)
     tone = (
         "Viết theo phong cách báo cáo phân tích Vietstock: "
         "ngôn ngữ nhà đầu tư, nêu khuyến nghị quan sát nếu phù hợp, "
@@ -271,9 +315,11 @@ def write_sections(
         focus = str(section.get("focus") or "")
         sec_id = str(section.get("id") or heading)
         prompt = f"""Bạn là phóng viên phân tích dữ liệu.
-Viết MỘT mục bài báo tiếng Việt (150–280 từ) theo dàn ý dưới đây.
+Viết MỘT mục bài báo tiếng Việt (120–250 từ) theo dàn ý dưới đây.
 Chỉ dùng số liệu trong THỐNG KÊ và MẪU JSON — tuyệt đối không bịa số.
 {tone}
+
+{template_brief}
 
 === CÂU HỎI ===
 {question}
@@ -297,6 +343,7 @@ Trọng tâm: {focus}
 3. Không nhắc SQL/LLM/backend.
 4. Không viết các mục khác.
 5. Không bịa giá mục tiêu, P/E, DCF nếu không có trong THỐNG KÊ.
+6. Nếu thiếu số để trả lời câu hỏi template → nêu rõ không đủ dữ liệu.
 
 Nội dung:"""
         try:
@@ -327,6 +374,9 @@ def finalize_article(
     """
     joined = "\n\n".join(s["content"] for s in sections if s.get("content"))
     vietstock = (outline.get("style") or "") == "vietstock"
+    template_brief = format_template_brief(outline)
+    lo = outline.get("word_count_min") or 500
+    hi = outline.get("word_count_max") or 900
     style_note = (
         "Phong cách Vietstock: tiêu đề chuyên nghiệp, lead nêu luận điểm + "
         "khuyến nghị quan sát (nếu có), không bịa giá mục tiêu."
@@ -337,6 +387,8 @@ def finalize_article(
 Hãy hoàn thiện bài báo phân tích tiếng Việt từ các mục đã viết.
 Giữ nguyên mọi số liệu — không thêm số mới.
 {style_note}
+
+{template_brief}
 
 === CÂU HỎI GỐC ===
 {question}
@@ -357,6 +409,7 @@ Style: {outline.get("style") or "bi"}
 4. Kết thúc bằng ## Kết luận ngắn (nếu chưa có).
 5. Markdown sạch, không code fence.
 6. Không bịa giá mục tiêu / định giá nếu không có trong nội dung gốc.
+7. Độ dài toàn bài khoảng {lo}–{hi} từ.
 
 Bài báo:"""
     try:
@@ -395,6 +448,9 @@ def write_full_article_one_shot(
         sample_rows[:_MAX_SAMPLE_ROWS], ensure_ascii=False, indent=2
     )
     vietstock = (outline.get("style") or "") == "vietstock"
+    template_brief = format_template_brief(outline)
+    lo = outline.get("word_count_min") or 500
+    hi = outline.get("word_count_max") or 900
     style_note = (
         "Phong cách Vietstock: ngôn ngữ nhà đầu tư, khuyến nghị quan sát "
         "(Theo dõi / Tích cực / Thận trọng) nếu phù hợp; không bịa giá mục tiêu."
@@ -409,9 +465,11 @@ def write_full_article_one_shot(
     sections_block = "\n".join(section_lines) or "- ## Phát hiện chính\n- ## Kết luận"
 
     prompt = f"""Bạn là biên tập viên phân tích dữ liệu.
-Viết MỘT bài báo tiếng Việt hoàn chỉnh (khoảng 600–900 từ) dựa trên thống kê có sẵn.
+Viết MỘT bài báo tiếng Việt hoàn chỉnh (khoảng {lo}–{hi} từ) dựa trên thống kê có sẵn.
 {style_note}
 Chỉ dùng số trong THỐNG KÊ / MẪU — tuyệt đối không bịa số, không bịa P/E hay giá mục tiêu.
+
+{template_brief}
 
 === CÂU HỎI ===
 {question}
@@ -437,7 +495,8 @@ Góc bài: {outline.get("angle")}
 1. Dòng đầu: # Tiêu đề hấp dẫn
 2. Đoạn lead 2–3 câu ngay sau tiêu đề (trước ## đầu tiên)
 3. Các mục ## theo dàn ý, viết liền mạch có số liệu
-4. Markdown sạch, không code fence, không nhắc SQL/LLM
+4. Trả lời đủ các câu hỏi của TEMPLATE (nếu có); thiếu data → nói rõ
+5. Markdown sạch, không code fence, không nhắc SQL/LLM
 
 Bài báo:"""
     try:
@@ -535,6 +594,9 @@ def generate_article(
         sections_written = len(outline.get("sections") or [])
 
     _progress("Đã xong — đang trả kết quả…")
+    now = datetime.now()
+    generated_at = _report_timestamp(now)
+    article = stamp_article_timestamp(article, now)
     word_count = len(re.findall(r"\S+", article))
     return {
         "article_markdown": article,
@@ -544,4 +606,7 @@ def generate_article(
         "sections_written": sections_written,
         "style": outline.get("style") or "bi",
         "mode": mode if mode == "full" else "fast",
+        "template_id": outline.get("template_id") or "",
+        "template_name": outline.get("template_name") or "",
+        "generated_at": generated_at,
     }

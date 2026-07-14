@@ -234,6 +234,9 @@ class ArticleResponse(BaseModel):
     domain_id: str
     question: str
     chart_image_embedded: bool = False
+    template_id: str = ""
+    template_name: str = ""
+    generated_at: str = ""
 
 
 class WordExportRequest(BaseModel):
@@ -402,6 +405,13 @@ def _build_article_response(
             if line.lstrip().startswith("# ") and not line.lstrip().startswith("##"):
                 insert_at = i + 1
                 break
+        # Chèn chart sau meta timestamp / dòng trống ngay sau tiêu đề
+        while insert_at < len(lines):
+            s = lines[insert_at].strip()
+            if not s or "Thời gian tạo báo cáo:" in s:
+                insert_at += 1
+                continue
+            break
         chart_block = [
             "",
             "![Biểu đồ phân tích](" + img + ")",
@@ -422,6 +432,9 @@ def _build_article_response(
         domain_id=request.domain_id,
         question=request.question,
         chart_image_embedded=chart_embedded,
+        template_id=str(result.get("template_id") or ""),
+        template_name=str(result.get("template_name") or ""),
+        generated_at=str(result.get("generated_at") or ""),
     )
 
 

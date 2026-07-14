@@ -84,6 +84,9 @@ export type ArticleResponse = {
   chart_image_embedded?: boolean;
   /** Ảnh chart chỉ lưu client-side — không gửi API (tránh 500 body lớn) */
   chart_preview_base64?: string | null;
+  template_id?: string;
+  template_name?: string;
+  generated_at?: string;
   error?: string;
 };
 

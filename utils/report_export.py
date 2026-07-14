@@ -435,9 +435,18 @@ def create_article_word(
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    meta_run = meta.add_run(f"Thời gian: {now}")
+    meta_run = meta.add_run(f"Thời gian tạo báo cáo: {now}")
     meta_run.font.size = Pt(10)
     meta_run.italic = True
+
+    if outline.get("template_name"):
+        tpl = doc.add_paragraph()
+        tpl.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        tpl_run = tpl.add_run(
+            f"Template: {outline.get('template_name')} "
+            f"({outline.get('template_id') or ''})".strip()
+        )
+        tpl_run.font.size = Pt(9)
 
     if outline.get("angle"):
         angle_p = doc.add_paragraph()

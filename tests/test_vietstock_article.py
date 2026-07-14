@@ -17,11 +17,21 @@ def test_is_finance_domain() -> None:
 
 
 def test_default_outline_vietstock_for_finance() -> None:
-    outline = _default_outline("Top 10 vốn hóa", "VNFDATA — Tài chính")
+    # Câu hỏi generic → khung Vietstock chung (không match template cụ thể)
+    outline = _default_outline(
+        "Phân tích biến động dữ liệu theo yêu cầu", "VNFDATA — Tài chính"
+    )
     assert outline["style"] == "vietstock"
     ids = [s["id"] for s in outline["sections"]]
     assert ids[0] == "thesis"
     assert "update" in ids
+
+
+def test_default_outline_template_when_matched() -> None:
+    outline = _default_outline("Top cổ phiếu tăng giá phiên nay", "VNFDATA — Tài chính")
+    assert outline["style"] == "vietstock"
+    assert outline.get("template_id") == "market_02"
+    assert outline.get("template_name") == "Top cổ phiếu tăng giá"
 
 
 def test_default_outline_bi_for_it() -> None:
@@ -53,6 +63,7 @@ Theo dõi tiếp.
 if __name__ == "__main__":
     test_is_finance_domain()
     test_default_outline_vietstock_for_finance()
+    test_default_outline_template_when_matched()
     test_default_outline_bi_for_it()
     test_split_article_markdown()
     print("ALL PASSED")

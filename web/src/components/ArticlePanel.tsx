@@ -37,6 +37,17 @@ export function ArticlePanel({
           <p className="font-[family-name:var(--font-serif)] text-lg font-semibold text-ink">
             Bài phân tích · {article.word_count} từ
           </p>
+          {(article.template_name || article.generated_at) && (
+            <p className="mt-0.5 text-xs text-ink-soft">
+              {article.template_name
+                ? `Template: ${article.template_name}`
+                : null}
+              {article.template_name && article.generated_at ? " · " : null}
+              {article.generated_at
+                ? `Thời gian tạo báo cáo: ${article.generated_at}`
+                : null}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <button
