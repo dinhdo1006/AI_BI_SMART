@@ -7,6 +7,7 @@ const DATA_ASK =
   /(liệt\s*kê|liet\s*ke|tổng|tong|trung\s*bình|trung\s*binh|theo\s*từng|dự\s*án|du\s*an|mỏ|trữ\s*lượng|phân\s*tích|so\s*sánh|bao\s*nhiêu|top|diễn\s*biến|dien\s*bien)/i;
 
 const CHART_PATTERNS: [ChartType, RegExp][] = [
+  ["candlestick", /(biểu\s*đồ|bieu\s*do).{0,30}(nến|nen|candle)|candlestick|ohlc/i],
   ["area", /(biểu\s*đồ|bieu\s*do).{0,30}(miền|mien|vùng|vung|area)|area\s*chart/i],
   ["line", /(biểu\s*đồ|bieu\s*do).{0,30}(đường|duong|line)|line\s*chart|xu\s*hướng|theo\s*(thời\s*gian|ngày)/i],
   ["combo", /(combo|kết\s*hợp|giá\s*và\s*khối\s*lượng|price\s*and\s*volume)/i],
@@ -44,6 +45,7 @@ export function chartQueryForType(chart: ChartType): string {
     area: "Vẽ biểu đồ miền",
     pie: "Vẽ biểu đồ tròn",
     combo: "Vẽ biểu đồ combo",
+    candlestick: "Vẽ biểu đồ nến",
     table: "Chỉ hiển thị bảng",
   };
   return map[chart];
@@ -177,7 +179,7 @@ export function selectCompatibleYCols(
   return compatible.length ? compatible : preferred.slice(0, 2);
 }
 
-function metricScore(col: string): number {
+export function metricScore(col: string): number {
   const c = col.toLowerCase();
   if (/pe_ratio|^pe$|pb_ratio|^pb$|roe|roa/.test(c)) return 60;
   if (/eps|market_cap|von_hoa/.test(c)) return 45;
@@ -188,15 +190,64 @@ function metricScore(col: string): number {
   return 10;
 }
 
+/** Nhận diện cột OHLC cho biểu đồ nến. */
+export function detectOhlcColumns(data: Record<string, unknown>[]): {
+  open?: string;
+  high?: string;
+  low?: string;
+  close?: string;
+  date?: string;
+} | null {
+  if (!data.length) return null;
+  const cols = Object.keys(data[0]);
+  const find = (re: RegExp) => cols.find((c) => re.test(c));
+  const open = find(/^open(_price)?$|gia_mo|open_price/i);
+  const high = find(/^high(_price)?$|gia_cao|high_price/i);
+  const low = find(/^low(_price)?$|gia_thap|low_price/i);
+  const close = find(/^close(_price)?$|gia_dong|adjusted_price|close_price/i);
+  const date = find(/date|ngay|trade_date|calc_date/i);
+  if (open && high && low && close) return { open, high, low, close, date };
+  return null;
+}
+
 /**
- * Tôn trọng lựa chọn user 100%.
- * (Gợi ý chart ban đầu vẫn đến từ backend chart_type.)
+ * Điều chỉnh loại chart khi dữ liệu không phù hợp.
  */
 export function refineChartType(
   requested: ChartType,
-  _data: Record<string, unknown>[],
+  data: Record<string, unknown>[],
 ): ChartType {
+  if (requested === "table") return "table";
+
+  if (requested === "candlestick") {
+    return detectOhlcColumns(data) ? "candlestick" : "line";
+  }
+
+  const { yCols } = pickChartAxes(data);
+
+  if (requested === "combo" && yCols.length < 2) return "bar";
+
+  if (requested === "pie") {
+    if (data.length > 12) return "bar";
+    if (yCols.length === 0) return "table";
+  }
+
   return requested;
+}
+
+export function chartTypeHint(
+  requested: ChartType,
+  data: Record<string, unknown>[],
+): string | null {
+  const refined = refineChartType(requested, data);
+  if (refined === requested) return null;
+  if (requested === "pie" && refined === "bar")
+    return "Pie không phù hợp khi >12 dòng — đã chuyển sang cột.";
+  if (requested === "combo" && refined === "bar")
+    return "Combo cần ≥2 cột số — đã chuyển sang cột.";
+  if (requested === "candlestick" && refined !== "candlestick")
+    return "Thiếu cột OHLC — đã chuyển sang đường.";
+  return `Đã điều chỉnh sang ${refined}.`;
 }
 
 export function shouldUseHorizontalBar(

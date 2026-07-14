@@ -6,9 +6,11 @@ import time
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from core.config_loader import list_available_domains, load_domain_config
+from core.dashboard_store import create_dashboard, get_dashboard
 from core.db_dialect import detect_dialect, dialect_label
 from core.db_executor import DbQueryError, execute_query
 from core.insight_stats import compute_insight_stats
@@ -30,6 +32,12 @@ from core.schema_introspection import check_db_connection
 from core.schema_rag import build_rag_schema_context, is_schema_rag_enabled
 from core.sql_fast_path import try_fast_sql
 from core.viz_advisor import ChartType, is_viz_only_request, resolve_chart_type
+from utils.report_export import create_word_report_api
+
+import json
+import pandas as pd
+import queue as queue_mod
+import threading
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -156,6 +164,10 @@ class ArticleRequest(BaseModel):
         default="",
         description="Tóm tắt insight hiện có để Narrative Planner tham khảo",
     )
+    chart_image_base64: str | None = Field(
+        default=None,
+        description="Ảnh biểu đồ PNG (data URL hoặc base64) để chèn vào bài",
+    )
 
 
 class ArticleResponse(BaseModel):
@@ -167,6 +179,22 @@ class ArticleResponse(BaseModel):
     sections_written: int = 0
     domain_id: str
     question: str
+    chart_image_embedded: bool = False
+
+
+class WordExportRequest(BaseModel):
+    domain_id: str = ""
+    query: str = ""
+    insight: str = ""
+    data: list[dict[str, Any]] = Field(default_factory=list)
+    article_markdown: str = ""
+    chart_image_base64: str | None = None
+
+
+class DashboardCreateRequest(BaseModel):
+    title: str = "Dashboard"
+    domain_id: str
+    reports: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class FeedbackRequest(BaseModel):
@@ -281,14 +309,85 @@ def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
             detail=f"Lỗi Narrative Planner (Ollama): {exc}",
         ) from exc
 
+    markdown = str(result["article_markdown"] or "")
+    chart_embedded = False
+    if request.chart_image_base64:
+        img = request.chart_image_base64.strip()
+        if not img.startswith("data:"):
+            img = f"data:image/png;base64,{img}"
+        # Chèn ảnh sau tiêu đề # đầu tiên (hoặc đầu bài)
+        lines = markdown.splitlines()
+        insert_at = 0
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("# ") and not line.lstrip().startswith("##"):
+                insert_at = i + 1
+                break
+        chart_block = [
+            "",
+            "![Biểu đồ phân tích](" + img + ")",
+            "",
+            "*Biểu đồ minh họa dữ liệu truy vấn.*",
+            "",
+        ]
+        lines[insert_at:insert_at] = chart_block
+        markdown = "\n".join(lines)
+        chart_embedded = True
+        # Cập nhật word_count thô
+        result["word_count"] = len(markdown.split())
+
     return ArticleResponse(
-        article_markdown=result["article_markdown"],
+        article_markdown=markdown,
         outline=result["outline"],
         word_count=int(result["word_count"]),
         sections_written=int(result.get("sections_written") or 0),
         domain_id=request.domain_id,
         question=request.question,
+        chart_image_embedded=chart_embedded,
     )
+
+
+@router.post("/export/word")
+def export_word_endpoint(request: WordExportRequest) -> Response:
+    """Xuất báo cáo / bài viết Word (.docx), nhúng ảnh ECharts nếu có."""
+    df = pd.DataFrame(request.data) if request.data else None
+    try:
+        content, _embedded = create_word_report_api(
+            query=request.query,
+            insight_text=request.insight,
+            dataframe=df,
+            chart_image_base64=request.chart_image_base64,
+            article_markdown=request.article_markdown or "",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất Word: {exc}") from exc
+    return Response(
+        content=content,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers={"Content-Disposition": 'attachment; filename="bao-cao-bi.docx"'},
+    )
+
+
+@router.post("/dashboards")
+def create_dashboard_endpoint(request: DashboardCreateRequest) -> dict[str, Any]:
+    """Lưu dashboard (1+ báo cáo) — trả id để share."""
+    if not request.reports:
+        raise HTTPException(status_code=400, detail="reports không được rỗng")
+    payload = create_dashboard(
+        title=request.title or "Dashboard",
+        domain_id=request.domain_id,
+        reports=request.reports,
+    )
+    return {"id": payload["id"], "title": payload["title"]}
+
+
+@router.get("/dashboards/{dash_id}")
+def get_dashboard_endpoint(dash_id: str) -> dict[str, Any]:
+    data = get_dashboard(dash_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Dashboard không tồn tại")
+    return data
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -626,3 +725,73 @@ def chat(request: ChatRequest) -> ChatResponse:
         request.domain_id, request.query, resp.model_dump(mode="json")
     )
     return resp
+
+
+_STREAM_STEPS = [
+    "Đang phân loại câu hỏi (Router)…",
+    "Đang tạo SQL…",
+    "Đang truy vấn cơ sở dữ liệu…",
+    "Đang phân tích insight…",
+    "Đang chọn biểu đồ…",
+]
+
+
+@router.post("/chat/stream")
+def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """
+    SSE stream: gửi progress steps trong lúc chạy /chat đồng bộ,
+    rồi gửi event result với ChatResponse đầy đủ.
+    """
+
+    def event_gen():
+        q: queue_mod.Queue[tuple[str, Any]] = queue_mod.Queue()
+
+        def worker() -> None:
+            try:
+                result = chat(request)
+                q.put(("result", result))
+            except Exception as exc:  # noqa: BLE001
+                q.put(("error", str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        step_i = 0
+        while True:
+            try:
+                kind, payload = q.get(timeout=1.8)
+            except queue_mod.Empty:
+                if step_i < len(_STREAM_STEPS):
+                    yield (
+                        "data: "
+                        + json.dumps(
+                            {"event": "progress", "step": _STREAM_STEPS[step_i]},
+                            ensure_ascii=False,
+                        )
+                        + "\n\n"
+                    )
+                    step_i += 1
+                continue
+
+            if kind == "result":
+                data = payload.model_dump(mode="json")
+                yield (
+                    "data: "
+                    + json.dumps({"event": "result", "data": data}, ensure_ascii=False)
+                    + "\n\n"
+                )
+                break
+            yield (
+                "data: "
+                + json.dumps({"event": "error", "step": str(payload)}, ensure_ascii=False)
+                + "\n\n"
+            )
+            break
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

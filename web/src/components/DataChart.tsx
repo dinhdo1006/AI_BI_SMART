@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
+import type { EChartsType } from "echarts/core";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import type { EChartsOption, SeriesOption } from "echarts";
+import { Download } from "lucide-react";
 import type { ChartType } from "@/lib/types";
 import { formatNumber, friendlyLabel } from "@/lib/format";
 import {
+  detectOhlcColumns,
   pickChartAxes,
   refineChartType,
   shouldUseHorizontalBar,
@@ -31,16 +34,24 @@ const COLORS = [
   "#57534e",
 ];
 
+export type DataChartHandle = {
+  getPngBase64: () => string | null;
+};
+
 export function DataChart({
   data,
   chartType,
   labels,
+  onReady,
 }: {
   data: Record<string, unknown>[];
   chartType: ChartType;
   labels?: Record<string, string>;
+  onReady?: (getPng: () => string | null) => void;
 }) {
+  const chartRef = useRef<EChartsType | null>(null);
   const axes = useMemo(() => pickChartAxes(data), [data]);
+  const ohlc = useMemo(() => detectOhlcColumns(data), [data]);
   const effectiveType = useMemo(
     () => refineChartType(chartType, data),
     [chartType, data],
@@ -70,6 +81,9 @@ export function DataChart({
     shouldUseHorizontalBar(data, x);
 
   const option = useMemo(() => {
+    if (effectiveType === "candlestick" && ohlc) {
+      return buildCandlestickOption(data, ohlc);
+    }
     if (!x || !yCols.length) return null;
     return buildOption({
       type: effectiveType,
@@ -79,9 +93,65 @@ export function DataChart({
       horizontal,
       xLabel: friendlyLabel(x, labels),
     });
-  }, [effectiveType, chartData, yCols, labels, horizontal, x]);
+  }, [
+    effectiveType,
+    chartData,
+    yCols,
+    labels,
+    horizontal,
+    x,
+    ohlc,
+    data,
+  ]);
 
-  if (!x || !yCols.length || !option) {
+  const getPngBase64 = useCallback(() => {
+    const inst = chartRef.current;
+    if (!inst) return null;
+    try {
+      return inst.getDataURL({
+        type: "png",
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+      });
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const onChartReady = useCallback(
+    (inst: EChartsType) => {
+      chartRef.current = inst;
+      onReady?.(getPngBase64);
+    },
+    [getPngBase64, onReady],
+  );
+
+  function downloadPng() {
+    const url = getPngBase64();
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bieu-do.png";
+    a.click();
+  }
+
+  if (effectiveType === "candlestick" && !ohlc) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Thiếu cột OHLC (open/high/low/close) để vẽ biểu đồ nến
+      </div>
+    );
+  }
+
+  if ((!x || !yCols.length) && effectiveType !== "candlestick") {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Không đủ cột số để vẽ biểu đồ
+      </div>
+    );
+  }
+
+  if (!option) {
     return (
       <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
         Không đủ cột số để vẽ biểu đồ
@@ -90,16 +160,29 @@ export function DataChart({
   }
 
   const height = horizontal ? 340 : 310;
+  const title =
+    effectiveType === "candlestick" && ohlc
+      ? `Nến · ${friendlyLabel(ohlc.close || "close", labels)}`
+      : `${friendlyLabel(x || "", labels)}${
+          yCols.length === 1
+            ? ` · ${friendlyLabel(yCols[0], labels)}`
+            : ` · ${yCols.map((c) => friendlyLabel(c, labels)).join(" · ")}`
+        }`;
 
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-gradient-to-br from-white via-foam/80 to-mist/40 p-3 shadow-sm">
       <div className="mb-2 flex items-center justify-between gap-2 px-1">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-soft/65">
-          {friendlyLabel(x, labels)}
-          {yCols.length === 1
-            ? ` · ${friendlyLabel(yCols[0], labels)}`
-            : ` · ${yCols.map((c) => friendlyLabel(c, labels)).join(" · ")}`}
+          {title}
         </p>
+        <button
+          type="button"
+          onClick={downloadPng}
+          className="inline-flex items-center gap-1 rounded-lg border border-line bg-white/90 px-2 py-1 text-[11px] font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink"
+        >
+          <Download className="h-3 w-3" />
+          PNG
+        </button>
       </div>
 
       <ReactECharts
@@ -108,9 +191,88 @@ export function DataChart({
         opts={{ renderer: "canvas" }}
         notMerge
         lazyUpdate
+        onChartReady={onChartReady}
       />
     </div>
   );
+}
+
+function buildCandlestickOption(
+  data: Record<string, unknown>[],
+  ohlc: NonNullable<ReturnType<typeof detectOhlcColumns>>,
+): EChartsOption {
+  const dateKey = ohlc.date;
+  const rows = [...data];
+  if (dateKey) {
+    rows.sort((a, b) =>
+      String(a[dateKey]).localeCompare(String(b[dateKey])),
+    );
+  }
+  const categories = rows.map((r) =>
+    dateKey
+      ? formatAxisLabel(r[dateKey], dateKey)
+      : String(rows.indexOf(r) + 1),
+  );
+  const values = rows.map((r) => [
+    Number(r[ohlc.open!]) || 0,
+    Number(r[ohlc.close!]) || 0,
+    Number(r[ohlc.low!]) || 0,
+    Number(r[ohlc.high!]) || 0,
+  ]);
+
+  return {
+    animationDuration: 700,
+    grid: { left: 12, right: 16, top: 28, bottom: 40, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "rgba(255,255,255,0.96)",
+      borderColor: "rgba(11,31,42,0.1)",
+      borderWidth: 1,
+      textStyle: { color: "#0b1f2a", fontSize: 12 },
+      formatter: (params) => {
+        const list = Array.isArray(params) ? params : [params];
+        const p = list[0] as {
+          axisValue?: string;
+          value?: number[];
+        };
+        const v = p.value || [];
+        return `<b>${p.axisValue || ""}</b><br/>Mở: ${formatNumber(v[1], ohlc.open!)}<br/>Đóng: ${formatNumber(v[2], ohlc.close!)}<br/>Thấp: ${formatNumber(v[3], ohlc.low!)}<br/>Cao: ${formatNumber(v[4], ohlc.high!)}`;
+      },
+    },
+    xAxis: {
+      type: "category",
+      data: categories,
+      axisLabel: { color: "#5b6b73", fontSize: 11 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      scale: true,
+      axisLabel: {
+        color: "#5b6b73",
+        fontSize: 11,
+        formatter: (v: number) => compactTick(v, ohlc.close!),
+      },
+      splitLine: {
+        lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        type: "candlestick",
+        data: values,
+        itemStyle: {
+          color: "#0f766e",
+          color0: "#b45309",
+          borderColor: "#0f766e",
+          borderColor0: "#b45309",
+        },
+      },
+    ],
+  };
 }
 
 function buildOption({

@@ -144,13 +144,104 @@ def _embed_chart_image(doc: Document, figure: Any) -> bool:
     img_bytes = _figure_to_png_bytes(figure)
     if not img_bytes:
         return False
+    return _embed_png_bytes(doc, img_bytes)
+
+
+def _embed_png_bytes(doc: Document, img_bytes: bytes, width_inches: float = 6.0) -> bool:
     try:
         stream = io.BytesIO(img_bytes)
-        doc.add_picture(stream, width=Inches(6))
+        doc.add_picture(stream, width=Inches(width_inches))
         return True
     except Exception as exc:
         _logger.warning("doc.add_picture failed: %s", exc)
         return False
+
+
+def embed_base64_png(doc: Document, data_url_or_b64: str | None) -> bool:
+    """Nhúng PNG từ data URL (data:image/png;base64,...) hoặc raw base64."""
+    if not data_url_or_b64:
+        return False
+    raw = data_url_or_b64.strip()
+    if "," in raw and raw.lower().startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    try:
+        import base64
+
+        img_bytes = base64.b64decode(raw)
+    except Exception as exc:
+        _logger.warning("base64 decode chart failed: %s", exc)
+        return False
+    return _embed_png_bytes(doc, img_bytes)
+
+
+def create_word_report_api(
+    query: str,
+    insight_text: str,
+    dataframe: pd.DataFrame | None,
+    chart_image_base64: str | None = None,
+    article_markdown: str = "",
+) -> tuple[bytes, bool]:
+    """
+    Export Word cho Next.js API — ưu tiên ảnh ECharts (base64),
+    nếu có article_markdown thì layout bài báo.
+    """
+    if (article_markdown or "").strip():
+        doc = Document()
+        chart_embedded = False
+        parts = split_article_markdown(article_markdown)
+        title_text = parts["title"] or "Bài báo phân tích"
+        heading = doc.add_heading(title_text, level=1)
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        if parts["lead"]:
+            p = doc.add_paragraph(parts["lead"])
+            for run in p.runs:
+                run.italic = True
+        if chart_image_base64:
+            chart_embedded = embed_base64_png(doc, chart_image_base64)
+            if chart_embedded:
+                cap = doc.add_paragraph("Biểu đồ phân tích")
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for line in _clean_insight_text(parts["body"] or article_markdown).splitlines():
+            if line.strip():
+                doc.add_paragraph(line.strip())
+        if dataframe is not None and not dataframe.empty:
+            doc.add_heading("Bảng số liệu", level=2)
+            _add_dataframe_table(doc, dataframe)
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        return buffer.getvalue(), chart_embedded
+
+    # Báo cáo insight thường
+    doc = Document()
+    chart_embedded = False
+    title = doc.add_heading("BÁO CÁO PHÂN TÍCH DỮ LIỆU", level=1)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    now = datetime.now().strftime("%d/%m/%Y %H:%M")
+    time_p = doc.add_paragraph()
+    time_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    time_run = time_p.add_run(f"Thời gian tạo báo cáo: {now}")
+    time_run.font.size = Pt(10)
+    time_run.italic = True
+    doc.add_paragraph()
+    doc.add_paragraph(f"Yêu cầu phân tích: {(query or '').strip() or '—'}")
+    doc.add_heading("Phần 1 — Executive Summary", level=2)
+    for line in _clean_insight_text(insight_text).splitlines():
+        if line.strip():
+            doc.add_paragraph(line.strip())
+    if chart_image_base64:
+        doc.add_heading("Phần 2 — Biểu đồ trực quan", level=2)
+        chart_embedded = embed_base64_png(doc, chart_image_base64)
+        table_heading = "Phần 3 — Bảng số liệu"
+    else:
+        table_heading = "Phần 2 — Bảng số liệu"
+    doc.add_heading(table_heading, level=2)
+    if dataframe is None or dataframe.empty:
+        doc.add_paragraph("Không có dữ liệu bảng để hiển thị.")
+    else:
+        _add_dataframe_table(doc, dataframe)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue(), chart_embedded
 
 
 def split_article_markdown(markdown: str) -> dict[str, str]:

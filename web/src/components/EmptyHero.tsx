@@ -1,14 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-
-const PROMPTS = [
-  "Top 10 mã vốn hóa lớn nhất",
-  "Diễn biến giá FPT 20 phiên gần nhất",
-  "So sánh P/E của FPT, VCB, HPG",
-];
+import { promptsForDomain } from "@/lib/domain-prompts";
+import { useChatStore } from "@/store/chat-store";
 
 export function EmptyHero({ onAsk }: { onAsk: (q: string) => void }) {
+  const domainId = useChatStore((s) => s.domainId);
+  const prompts = promptsForDomain(domainId);
+
   return (
     <div className="relative flex min-h-[58vh] flex-col items-center justify-center px-2 text-center">
       <motion.div
@@ -36,7 +35,7 @@ export function EmptyHero({ onAsk }: { onAsk: (q: string) => void }) {
         </p>
 
         <div className="relative mt-8 flex flex-wrap items-center justify-center gap-2">
-          {PROMPTS.map((q, i) => (
+          {prompts.map((q, i) => (
             <motion.button
               key={q}
               type="button"

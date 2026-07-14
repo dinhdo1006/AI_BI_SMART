@@ -1,17 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
+  Copy,
   Download,
   FileText,
+  LayoutDashboard,
   Newspaper,
   ThumbsDown,
   ThumbsUp,
   TriangleAlert,
 } from "lucide-react";
-import { postArticle, postFeedback } from "@/lib/api";
+import {
+  postArticle,
+  postFeedback,
+  saveDashboard,
+  exportWord,
+} from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
+import { chartTypeHint } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { InsightBlock } from "@/components/InsightBlock";
@@ -26,20 +34,17 @@ const CHART_OPTIONS: { value: ChartType; label: string }[] = [
   { value: "area", label: "Miền" },
   { value: "pie", label: "Tròn" },
   { value: "combo", label: "Combo" },
+  { value: "candlestick", label: "Nến" },
   { value: "table", label: "Bảng" },
 ];
 
-/** Badge tin cậy từ sql_source — chỉ hiện khi có SQL thật. */
 function confidenceBadge(source: string | null | undefined): {
   label: string;
   className: string;
 } | null {
   if (!source) return null;
   if (source === "fast_path" || source === "fast_path_fallback") {
-    return {
-      label: "Tin cậy cao",
-      className: "bg-teal/10 text-teal",
-    };
+    return { label: "Tin cậy cao", className: "bg-teal/10 text-teal" };
   }
   if (source === "llm" || source === "llm_followup") {
     return {
@@ -80,12 +85,26 @@ export function ReportCard({
     payload.chart_type || "bar",
   );
   const [writing, setWriting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [savingDash, setSavingDash] = useState(false);
   const [sendingVote, setSendingVote] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [dashUrl, setDashUrl] = useState<string | null>(null);
+  const getPngRef = useRef<(() => string | null) | null>(null);
 
-  const labels = payload.column_labels || {};
-  const hasData = (payload.data?.length || 0) > 0 && payload.status === "success";
+  const labels = useMemo(
+    () => payload.column_labels || {},
+    [payload.column_labels],
+  );
+  const hasData =
+    (payload.data?.length || 0) > 0 && payload.status === "success";
   const confidence = confidenceBadge(payload.sql_source);
   const voted = msg?.feedback ?? null;
+  const hint = useMemo(
+    () => (hasData ? chartTypeHint(chartType, payload.data) : null),
+    [chartType, payload.data, hasData],
+  );
+
   const renamed = useMemo(() => {
     return (payload.data || []).map((row) => {
       const out: Record<string, unknown> = {};
@@ -96,27 +115,85 @@ export function ReportCard({
     });
   }, [payload.data, labels]);
 
+  const onChartReady = useCallback((getPng: () => string | null) => {
+    getPngRef.current = getPng;
+  }, []);
+
   async function onChartChange(next: ChartType) {
-    // Đổi loại chart ngay trên client — không gọi API (tránh backend ghi đè)
     setChartType(next);
     updateMessage(messageId, {
       payload: { ...payload, chart_type: next },
     });
   }
 
+  async function copySql() {
+    try {
+      await navigator.clipboard.writeText(payload.sql_query);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+
   async function writeArticle() {
     if (!payload.data?.length) return;
     setWriting(true);
     try {
+      const chartImage = getPngRef.current?.() || undefined;
       const article = await postArticle({
         domainId,
         question: payload.query,
         data: payload.data,
         insightSummary: payload.insight || "",
+        chartImageBase64: chartImage,
       });
       updateMessage(messageId, { article });
     } finally {
       setWriting(false);
+    }
+  }
+
+  async function downloadWord() {
+    if (!payload.data?.length) return;
+    setExporting(true);
+    try {
+      const chartImage = getPngRef.current?.() || undefined;
+      await exportWord({
+        domainId,
+        query: payload.query,
+        insight: payload.insight || "",
+        data: payload.data,
+        articleMarkdown: msg?.article?.article_markdown,
+        chartImageBase64: chartImage,
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function pinDashboard() {
+    setSavingDash(true);
+    try {
+      const chartImage = getPngRef.current?.() || undefined;
+      const res = await saveDashboard({
+        title: payload.query.slice(0, 80),
+        domainId,
+        reports: [
+          {
+            query: payload.query,
+            insight: payload.insight,
+            data: payload.data,
+            chart_type: chartType,
+            column_labels: labels,
+            chart_image_base64: chartImage,
+            article_markdown: msg?.article?.article_markdown,
+          },
+        ],
+      });
+      if (res.id) setDashUrl(`/dashboard/${res.id}`);
+    } finally {
+      setSavingDash(false);
     }
   }
 
@@ -197,12 +274,14 @@ export function ReportCard({
         </div>
 
         {hasData && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col items-end gap-1">
             <label className="flex items-center gap-2 text-xs text-ink-soft">
               Biểu đồ
               <select
                 value={chartType}
-                onChange={(e) => void onChartChange(e.target.value as ChartType)}
+                onChange={(e) =>
+                  void onChartChange(e.target.value as ChartType)
+                }
                 className="rounded-lg border border-line bg-foam px-2 py-1.5 text-sm text-ink outline-none focus:border-teal"
               >
                 {CHART_OPTIONS.map((o) => (
@@ -212,6 +291,11 @@ export function ReportCard({
                 ))}
               </select>
             </label>
+            {hint && (
+              <p className="max-w-xs text-right text-[10px] text-copper">
+                {hint}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -236,6 +320,7 @@ export function ReportCard({
                 data={payload.data}
                 chartType={chartType}
                 labels={labels}
+                onReady={onChartReady}
               />
             )}
           </div>
@@ -252,9 +337,19 @@ export function ReportCard({
             <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
               SQL đã chạy
             </summary>
-            <pre className="mt-2 overflow-x-auto text-xs leading-relaxed text-ink-soft">
-              {payload.sql_query}
-            </pre>
+            <div className="mt-2 flex items-start justify-between gap-2">
+              <pre className="flex-1 overflow-x-auto text-xs leading-relaxed text-ink-soft">
+                {payload.sql_query}
+              </pre>
+              <button
+                type="button"
+                onClick={() => void copySql()}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-white px-2 py-1 text-[11px] font-semibold text-ink-soft hover:text-ink"
+              >
+                <Copy className="h-3 w-3" />
+                {copied ? "Đã copy" : "Copy"}
+              </button>
+            </div>
           </details>
         )}
 
@@ -284,6 +379,15 @@ export function ReportCard({
             </button>
             <button
               type="button"
+              disabled={exporting}
+              onClick={() => void downloadWord()}
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-foam px-3 py-2 text-sm font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink disabled:opacity-50"
+            >
+              <FileText className="h-4 w-4" />
+              {exporting ? "Word…" : "Word"}
+            </button>
+            <button
+              type="button"
               disabled={writing}
               onClick={() => void writeArticle()}
               className="inline-flex items-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm font-semibold text-foam transition hover:bg-ink-soft disabled:opacity-50"
@@ -291,6 +395,25 @@ export function ReportCard({
               <Newspaper className="h-4 w-4" />
               {writing ? "Đang viết…" : "Viết bài báo"}
             </button>
+            <button
+              type="button"
+              disabled={savingDash}
+              onClick={() => void pinDashboard()}
+              className="inline-flex items-center gap-2 rounded-xl border border-teal/30 bg-teal/10 px-3 py-2 text-sm font-semibold text-teal transition hover:bg-teal/15 disabled:opacity-50"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              {savingDash ? "Đang lưu…" : "Lưu dashboard"}
+            </button>
+            {dashUrl && (
+              <a
+                href={dashUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-semibold text-teal underline"
+              >
+                Mở dashboard
+              </a>
+            )}
 
             <div className="ml-auto flex items-center gap-1.5">
               <span className="mr-1 text-[11px] text-ink-soft/60">

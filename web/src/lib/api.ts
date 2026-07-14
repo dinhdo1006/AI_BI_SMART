@@ -1,6 +1,7 @@
 import type {
   ArticleResponse,
   ChatResponse,
+  DashboardPayload,
   DomainsHealth,
   DomainItem,
   HistoryMessage,
@@ -93,11 +94,89 @@ export async function postChat(params: {
   return (await res.json()) as ChatResponse;
 }
 
+/** SSE streaming chat — gọi onProgress khi có bước, trả ChatResponse cuối. */
+export async function postChatStream(params: {
+  domainId: string;
+  query: string;
+  history: HistoryMessage[];
+  reuseData?: Record<string, unknown>[] | null;
+  onProgress?: (step: string) => void;
+}): Promise<ChatResponse> {
+  try {
+    const res = await fetch(apiUrl("/api/v1/chat/stream"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({
+        domain_id: params.domainId,
+        query: params.query,
+        history: params.history,
+        reuse_data: params.reuseData ?? null,
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      // Fallback non-stream
+      return postChat(params);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: ChatResponse | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || "";
+      for (const part of parts) {
+        const line = part
+          .split("\n")
+          .find((l) => l.startsWith("data: "));
+        if (!line) continue;
+        try {
+          const json = JSON.parse(line.slice(6)) as {
+            event: string;
+            step?: string;
+            data?: ChatResponse;
+          };
+          if (json.event === "progress" && json.step) {
+            params.onProgress?.(json.step);
+          } else if (json.event === "result" && json.data) {
+            result = json.data;
+          } else if (json.event === "error") {
+            return {
+              status: "error",
+              domain_id: params.domainId,
+              query: params.query,
+              sql_query: "",
+              data: [],
+              insight: "",
+              row_count: 0,
+              chart_type: "table",
+              error: json.step || "Lỗi stream",
+              error_detail: json.step || "Lỗi stream",
+            };
+          }
+        } catch {
+          /* ignore bad chunk */
+        }
+      }
+    }
+
+    return result || postChat(params);
+  } catch {
+    return postChat(params);
+  }
+}
+
 export async function postArticle(params: {
   domainId: string;
   question: string;
   data: Record<string, unknown>[];
   insightSummary?: string;
+  chartImageBase64?: string;
 }): Promise<ArticleResponse> {
   const res = await fetch(apiUrl("/api/v1/generate_article"), {
     method: "POST",
@@ -107,6 +186,7 @@ export async function postArticle(params: {
       question: params.question,
       data: params.data,
       insight_summary: params.insightSummary || "",
+      chart_image_base64: params.chartImageBase64 || null,
     }),
   });
   if (!res.ok) {
@@ -120,6 +200,68 @@ export async function postArticle(params: {
     };
   }
   return (await res.json()) as ArticleResponse;
+}
+
+export async function exportWord(params: {
+  domainId: string;
+  query: string;
+  insight: string;
+  data: Record<string, unknown>[];
+  articleMarkdown?: string;
+  chartImageBase64?: string;
+}): Promise<void> {
+  const res = await fetch(apiUrl("/api/v1/export/word"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      domain_id: params.domainId,
+      query: params.query,
+      insight: params.insight,
+      data: params.data,
+      article_markdown: params.articleMarkdown || "",
+      chart_image_base64: params.chartImageBase64 || null,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "bao-cao-bi.docx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function saveDashboard(params: {
+  title: string;
+  domainId: string;
+  reports: DashboardPayload["reports"];
+}): Promise<{ id: string }> {
+  const res = await fetch(apiUrl("/api/v1/dashboards"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: params.title,
+      domain_id: params.domainId,
+      reports: params.reports,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as { id: string };
+}
+
+export async function fetchDashboard(
+  id: string,
+): Promise<DashboardPayload | null> {
+  try {
+    const res = await fetch(apiUrl(`/api/v1/dashboards/${id}`), {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as DashboardPayload;
+  } catch {
+    return null;
+  }
 }
 
 export async function postFeedback(params: {

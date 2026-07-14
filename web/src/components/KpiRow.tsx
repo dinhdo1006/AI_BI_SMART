@@ -1,7 +1,7 @@
 "use client";
 
 import { formatNumber, friendlyLabel } from "@/lib/format";
-import { analyzeColumns } from "@/lib/viz";
+import { analyzeColumns, metricScore } from "@/lib/viz";
 
 const ACCENTS = ["#0f766e", "#b45309", "#1c3a4a", "#0e7490"];
 
@@ -14,7 +14,9 @@ export function KpiRow({
 }) {
   if (!data.length) return null;
   const { numeric } = analyzeColumns(data);
-  const cols = numeric.slice(0, 4);
+  const cols = [...numeric]
+    .sort((a, b) => metricScore(b) - metricScore(a))
+    .slice(0, 4);
   if (!cols.length) return null;
 
   const items = cols.map((col) => {
@@ -27,10 +29,24 @@ export function KpiRow({
       /volume|value|market_cap|von_hoa|budget|tonnage|revenue|income/i.test(
         col,
       );
+
+    let delta: string | null = null;
+    if (vals.length >= 2 && !useSum) {
+      const first = vals[0];
+      const last = vals[vals.length - 1];
+      if (first !== 0) {
+        const pct = ((last - first) / Math.abs(first)) * 100;
+        const sign = pct > 0 ? "+" : "";
+        delta = `${sign}${pct.toFixed(1)}%`;
+      }
+    }
+
     return {
       label: friendlyLabel(col, labels),
       value: formatNumber(useSum ? sum : avg, col),
       hint: useSum ? "Tổng" : "TB",
+      delta,
+      up: delta ? delta.startsWith("+") : null,
     };
   });
 
@@ -51,6 +67,17 @@ export function KpiRow({
           <p className="mt-1.5 font-[family-name:var(--font-display)] text-2xl font-bold tracking-tight text-ink">
             {item.value}
           </p>
+          {item.delta && (
+            <p
+              className={
+                item.up
+                  ? "mt-1 text-[11px] font-semibold text-teal"
+                  : "mt-1 text-[11px] font-semibold text-copper"
+              }
+            >
+              {item.delta} (đầu→cuối kỳ)
+            </p>
+          )}
         </div>
       ))}
     </div>

@@ -1,4 +1,11 @@
-export type ChartType = "bar" | "pie" | "line" | "area" | "combo" | "table";
+export type ChartType =
+  | "bar"
+  | "pie"
+  | "line"
+  | "area"
+  | "combo"
+  | "candlestick"
+  | "table";
 
 export type ResponseStatus = "success" | "error" | "empty";
 
@@ -36,7 +43,26 @@ export type ArticleResponse = {
   sections_written?: number;
   domain_id: string;
   question: string;
+  chart_image_embedded?: boolean;
   error?: string;
+};
+
+export type DashboardReport = {
+  query: string;
+  insight?: string;
+  data: Record<string, unknown>[];
+  chart_type: ChartType;
+  column_labels?: Record<string, string>;
+  chart_image_base64?: string;
+  article_markdown?: string;
+};
+
+export type DashboardPayload = {
+  id: string;
+  title: string;
+  domain_id: string;
+  created_at: string;
+  reports: DashboardReport[];
 };
 
 export type DomainItem = { id: string; name: string };

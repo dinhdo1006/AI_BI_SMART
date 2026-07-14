@@ -3,13 +3,21 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Loader2 } from "lucide-react";
-import { postChat } from "@/lib/api";
+import { postChatStream } from "@/lib/api";
 import type { HistoryMessage } from "@/lib/types";
 import { isVizOnlyRequest } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
 import { EmptyHero } from "./EmptyHero";
 import { ReportCard } from "./ReportCard";
 import { cn } from "@/lib/utils";
+
+const LOADING_STEPS = [
+  "Đang phân loại câu hỏi (Router)…",
+  "Đang tạo SQL…",
+  "Đang truy vấn cơ sở dữ liệu…",
+  "Đang phân tích insight…",
+  "Đang chọn biểu đồ…",
+];
 
 function briefFromPayload(
   status: string,
@@ -40,10 +48,18 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, loadingLabel]);
+
+  function clearStepTimer() {
+    if (stepTimer.current) {
+      clearInterval(stepTimer.current);
+      stepTimer.current = null;
+    }
+  }
 
   async function sendQuery(raw: string) {
     const query = raw.trim();
@@ -58,25 +74,30 @@ export function ChatPanel() {
       .slice(-6)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // history includes the just-added user message; API wants prior turns
     const historyForApi = history.slice(0, -1);
 
     const reuse =
       isVizOnlyRequest(query) && lastData() ? lastData() : null;
 
-    setLoading(
-      true,
-      reuse
-        ? "Đang đổi loại biểu đồ…"
-        : "Fast-path / Router / SQLCoder đang xử lý…",
-    );
+    if (reuse) {
+      setLoading(true, "Đang đổi loại biểu đồ…");
+    } else {
+      let stepIdx = 0;
+      setLoading(true, LOADING_STEPS[0]);
+      clearStepTimer();
+      stepTimer.current = setInterval(() => {
+        stepIdx = Math.min(stepIdx + 1, LOADING_STEPS.length - 1);
+        setLoading(true, LOADING_STEPS[stepIdx]);
+      }, 2200);
+    }
 
     try {
-      const payload = await postChat({
+      const payload = await postChatStream({
         domainId,
         query,
         history: historyForApi,
         reuseData: reuse,
+        onProgress: (step) => setLoading(true, step),
       });
       payload.query = query;
       payload.domain_id = domainId;
@@ -91,6 +112,7 @@ export function ChatPanel() {
         err instanceof Error ? err.message : "Lỗi không xác định khi gọi API.",
       );
     } finally {
+      clearStepTimer();
       setLoading(false);
     }
   }
@@ -109,8 +131,6 @@ export function ChatPanel() {
     e.preventDefault();
     void sendQuery(input);
   }
-
-  let reportN = 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-line bg-foam/75 shadow-[var(--shadow)] backdrop-blur-md">
@@ -136,41 +156,47 @@ export function ChatPanel() {
           <EmptyHero onAsk={(q) => void sendQuery(q)} />
         ) : (
           <AnimatePresence initial={false}>
-            {messages.map((msg) => {
-              const isUser = msg.role === "user";
-              let thisReport = 0;
-              if (!isUser && msg.payload) {
-                reportN += 1;
-                thisReport = reportN;
+            {(() => {
+              const reportIndexById = new Map<string, number>();
+              let n = 0;
+              for (const m of messages) {
+                if (m.role !== "user" && m.payload) {
+                  n += 1;
+                  reportIndexById.set(m.id, n);
+                }
               }
-              return (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.28 }}
-                  className={cn("flex flex-col gap-3", isUser && "items-end")}
-                >
-                  <div
-                    className={cn(
-                      "max-w-[92%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed md:max-w-[75%]",
-                      isUser
-                        ? "bg-ink text-foam shadow-md shadow-ink/10"
-                        : "border border-line bg-white/90 text-ink-soft",
-                    )}
+              return messages.map((msg) => {
+                const isUser = msg.role === "user";
+                const thisReport = reportIndexById.get(msg.id) || 0;
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.28 }}
+                    className={cn("flex flex-col gap-3", isUser && "items-end")}
                   >
-                    {msg.content}
-                  </div>
-                  {!isUser && msg.payload && (
-                    <ReportCard
-                      payload={msg.payload}
-                      reportIndex={thisReport}
-                      messageId={msg.id}
-                    />
-                  )}
-                </motion.div>
-              );
-            })}
+                    <div
+                      className={cn(
+                        "max-w-[92%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed md:max-w-[75%]",
+                        isUser
+                          ? "bg-ink text-foam shadow-md shadow-ink/10"
+                          : "border border-line bg-white/90 text-ink-soft",
+                      )}
+                    >
+                      {msg.content}
+                    </div>
+                    {!isUser && msg.payload && (
+                      <ReportCard
+                        payload={msg.payload}
+                        reportIndex={thisReport}
+                        messageId={msg.id}
+                      />
+                    )}
+                  </motion.div>
+                );
+              });
+            })()}
           </AnimatePresence>
         )}
 

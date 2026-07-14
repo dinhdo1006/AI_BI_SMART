@@ -57,8 +57,21 @@ export function ArticlePanel({
           </button>
         </div>
       </div>
-      <div className="prose-article max-h-[480px] overflow-y-auto px-5 py-4 scrollbar-thin">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      <div className="prose-article max-h-[560px] overflow-y-auto px-5 py-4 scrollbar-thin">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            img: ({ src, alt }) =>
+              src ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={src}
+                  alt={alt || "Biểu đồ"}
+                  className="my-4 max-h-[360px] w-full rounded-xl border border-line object-contain bg-white"
+                />
+              ) : null,
+          }}
+        >
           {article.article_markdown}
         </ReactMarkdown>
       </div>

@@ -3,27 +3,10 @@
 import { useEffect, useState } from "react";
 import { Activity, Eraser, Sparkles } from "lucide-react";
 import { API_BASE, fetchDomainsHealth } from "@/lib/api";
+import { promptsForDomain } from "@/lib/domain-prompts";
 import type { DomainsHealth } from "@/lib/types";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-
-const SUGGESTIONS: Record<string, string[]> = {
-  finance_vnfdata: [
-    "Top 10 mã vốn hóa lớn nhất",
-    "Diễn biến giá FPT 20 phiên gần nhất",
-    "So sánh P/E P/B ROE của FPT, VCB, HPG",
-  ],
-  it_deployment: [
-    "Liệt kê dự án đang triển khai",
-    "Top 5 dự án tiến độ FSI cao nhất",
-    "Tổng ngân sách theo phòng ban",
-  ],
-  mining_geology: [
-    "Các khu vực mỏ khai thác than",
-    "Top trữ lượng theo loại khoáng sản",
-    "Hàm lượng trung bình theo tỉnh",
-  ],
-};
 
 export function Sidebar() {
   const domains = useChatStore((s) => s.domains);
@@ -38,7 +21,7 @@ export function Sidebar() {
     return () => clearInterval(t);
   }, []);
 
-  const suggestions = SUGGESTIONS[domainId] || SUGGESTIONS.finance_vnfdata;
+  const suggestions = promptsForDomain(domainId);
   const domainHealth = health?.domains?.[domainId];
 
   return (

@@ -1,10 +1,12 @@
 "use client";
 
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 function parseSections(text: string): { title: string; body: string }[] {
   const cleaned = text.replace(/\r\n/g, "\n").trim();
   if (!cleaned) return [];
 
-  const heading = /^(#{1,3}\s+.+|[A-ZÀ-Ỹ][^\n]{0,80}:)\s*$/m;
   const lines = cleaned.split("\n");
   const sections: { title: string; body: string }[] = [];
   let title = "Nhận định";
@@ -24,11 +26,6 @@ function parseSections(text: string): { title: string; body: string }[] {
     ) {
       flush();
       title = t.replace(/^#{1,3}\s+/, "").replace(/:$/, "");
-      continue;
-    }
-    if (heading.test(t) && body.length > 2) {
-      flush();
-      title = t.replace(/:$/, "");
       continue;
     }
     body.push(line);
@@ -52,9 +49,9 @@ export function InsightBlock({ text }: { text: string }) {
           <p className="font-[family-name:var(--font-serif)] text-[1.05rem] font-semibold tracking-tight text-ink">
             {s.title}
           </p>
-          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">
-            {s.body}
-          </p>
+          <div className="prose-article mt-1.5 text-sm leading-relaxed text-ink-soft [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.body}</ReactMarkdown>
+          </div>
         </div>
       ))}
     </div>

@@ -5,10 +5,18 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-ChartType = Literal["bar", "pie", "line", "area", "combo", "table"]
+ChartType = Literal["bar", "pie", "line", "area", "combo", "candlestick", "table"]
 
 # Ưu tiên: area/line/bar trước pie — tránh "miền" bị nhầm hoặc auto-pie
 _CHART_PATTERNS: list[tuple[ChartType, re.Pattern[str]]] = [
+    (
+        "candlestick",
+        re.compile(
+            r"(biểu\s*đồ|bieu\s*do).{0,30}(nến|nen|candle)|"
+            r"candlestick|ohlc|đồ\s*thị\s*nến|do\s*thi\s*nen",
+            re.IGNORECASE,
+        ),
+    ),
     (
         "area",
         re.compile(
