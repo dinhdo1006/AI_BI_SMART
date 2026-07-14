@@ -34,7 +34,7 @@ export function Workspace() {
   }, [setDomains]);
 
   return (
-    <div className="relative mx-auto flex h-dvh max-w-[1600px] gap-4 p-3 md:p-5">
+    <div className="relative flex h-dvh gap-0 p-3 md:gap-4 md:p-5">
       <motion.aside
         initial={{ opacity: 0, x: -16 }}
         animate={{ opacity: 1, x: 0 }}

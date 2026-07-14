@@ -159,7 +159,7 @@ export function ReportCard({
   }
 
   return (
-    <section className="w-full max-w-5xl overflow-hidden rounded-2xl border border-line bg-white/95 shadow-sm">
+    <section className="w-full overflow-hidden rounded-2xl border border-line bg-white/95 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-teal">

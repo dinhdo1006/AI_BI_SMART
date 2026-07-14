@@ -1,24 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
+import type { CallbackDataParams } from "echarts/types/dist/shared";
+import type { EChartsOption, SeriesOption } from "echarts";
 import type { ChartType } from "@/lib/types";
 import { formatNumber, friendlyLabel } from "@/lib/format";
 import {
@@ -26,6 +11,15 @@ import {
   refineChartType,
   shouldUseHorizontalBar,
 } from "@/lib/viz";
+
+const ReactECharts = dynamic(() => import("echarts-for-react"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[310px] items-center justify-center text-sm text-ink-soft">
+      Đang tải biểu đồ…
+    </div>
+  ),
+});
 
 const COLORS = [
   "#0f766e",
@@ -36,48 +30,6 @@ const COLORS = [
   "#047857",
   "#57534e",
 ];
-
-function ChartTooltip({
-  active,
-  payload,
-  label,
-  labels,
-}: {
-  active?: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  payload?: readonly any[];
-  label?: string | number;
-  labels?: Record<string, string>;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl border border-line bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur">
-      <p className="mb-1.5 text-xs font-semibold text-ink">{String(label ?? "")}</p>
-      <ul className="space-y-1">
-        {payload.map((p) => {
-          const key = String(p.dataKey || p.name || "");
-          return (
-            <li
-              key={key}
-              className="flex items-center justify-between gap-6 text-[12px]"
-            >
-              <span className="flex items-center gap-2 text-ink-soft">
-                <span
-                  className="h-2 w-2 rounded-sm"
-                  style={{ background: p.color || COLORS[0] }}
-                />
-                {friendlyLabel(key, labels)}
-              </span>
-              <span className="font-semibold tabular-nums text-ink">
-                {formatNumber(p.value, key)}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
 
 export function DataChart({
   data,
@@ -117,7 +69,19 @@ export function DataChart({
     !axes.isTimeSeries &&
     shouldUseHorizontalBar(data, x);
 
-  if (!x || !yCols.length) {
+  const option = useMemo(() => {
+    if (!x || !yCols.length) return null;
+    return buildOption({
+      type: effectiveType,
+      chartData,
+      yCols,
+      labels,
+      horizontal,
+      xLabel: friendlyLabel(x, labels),
+    });
+  }, [effectiveType, chartData, yCols, labels, horizontal, x]);
+
+  if (!x || !yCols.length || !option) {
     return (
       <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
         Không đủ cột số để vẽ biểu đồ
@@ -125,12 +89,7 @@ export function DataChart({
     );
   }
 
-  const tip = (props: Record<string, unknown>) => (
-    <ChartTooltip {...props} labels={labels} />
-  );
-
-  const axisTick = { fill: "#5b6b73", fontSize: 11 };
-  const grid = { stroke: "rgba(11,31,42,0.07)", strokeDasharray: "4 6" };
+  const height = horizontal ? 340 : 310;
 
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-gradient-to-br from-white via-foam/80 to-mist/40 p-3 shadow-sm">
@@ -143,185 +102,409 @@ export function DataChart({
         </p>
       </div>
 
-      <ResponsiveContainer width="100%" height={horizontal ? 340 : 310}>
-        {effectiveType === "pie" ? (
-          <PieChart>
-            <Pie
-              data={chartData}
-              dataKey={yCols[0]}
-              nameKey="name"
-              cx="50%"
-              cy="50%"
-              innerRadius={52}
-              outerRadius={100}
-              paddingAngle={2}
-              label={({ name, percent }) =>
-                `${String(name).slice(0, 8)} ${((percent || 0) * 100).toFixed(0)}%`
-              }
-            >
-              {chartData.map((_, i) => (
-                <Cell
-                  key={i}
-                  fill={COLORS[i % COLORS.length]}
-                  stroke="#fff"
-                  strokeWidth={2}
-                />
-              ))}
-            </Pie>
-            <Tooltip content={tip} />
-            <Legend />
-          </PieChart>
-        ) : effectiveType === "line" ? (
-          <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-            <CartesianGrid {...grid} vertical={false} />
-            <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={axisTick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => compactTick(v, yCols[0])}
-              width={52}
-            />
-            <Tooltip content={tip} />
-            <Legend formatter={(v) => friendlyLabel(String(v), labels)} />
-            {yCols.map((y, i) => (
-              <Line
-                key={y}
-                type="monotone"
-                dataKey={y}
-                stroke={COLORS[i % COLORS.length]}
-                strokeWidth={2.4}
-                dot={{ r: 3, strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
-              />
-            ))}
-          </LineChart>
-        ) : effectiveType === "area" ? (
-          <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-            <defs>
-              {yCols.map((y, i) => (
-                <linearGradient key={y} id={`fill-${i}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.35} />
-                  <stop offset="100%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.02} />
-                </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid {...grid} vertical={false} />
-            <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={axisTick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => compactTick(v, yCols[0])}
-              width={52}
-            />
-            <Tooltip content={tip} />
-            <Legend formatter={(v) => friendlyLabel(String(v), labels)} />
-            {yCols.map((y, i) => (
-              <Area
-                key={y}
-                type="monotone"
-                dataKey={y}
-                stroke={COLORS[i % COLORS.length]}
-                fill={`url(#fill-${i})`}
-                strokeWidth={2.2}
-              />
-            ))}
-          </AreaChart>
-        ) : effectiveType === "combo" && yCols.length >= 2 ? (
-          <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid {...grid} vertical={false} />
-            <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
-            <YAxis
-              yAxisId="left"
-              tick={axisTick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => compactTick(v, yCols[0])}
-              width={52}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tick={axisTick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => compactTick(v, yCols[1])}
-              width={52}
-            />
-            <Tooltip content={tip} />
-            <Legend formatter={(v) => friendlyLabel(String(v), labels)} />
-            <Bar
-              yAxisId="left"
-              dataKey={yCols[0]}
-              fill={COLORS[0]}
-              radius={[6, 6, 0, 0]}
-              maxBarSize={42}
-            />
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey={yCols[1]}
-              stroke={COLORS[1]}
-              strokeWidth={2.4}
-              dot={{ r: 3, strokeWidth: 0 }}
-            />
-          </ComposedChart>
-        ) : (
-          <BarChart
-            data={chartData}
-            layout={horizontal ? "vertical" : "horizontal"}
-            margin={{ top: 8, right: 12, left: horizontal ? 8 : 0, bottom: 4 }}
-            barCategoryGap="18%"
-            barGap={4}
-          >
-            <CartesianGrid {...grid} horizontal={!horizontal} vertical={horizontal} />
-            {horizontal ? (
-              <>
-                <XAxis
-                  type="number"
-                  tick={axisTick}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => compactTick(v, yCols[0])}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={axisTick}
-                  axisLine={false}
-                  tickLine={false}
-                  width={72}
-                />
-              </>
-            ) : (
-              <>
-                <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
-                <YAxis
-                  tick={axisTick}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => compactTick(v, yCols[0])}
-                  width={52}
-                />
-              </>
-            )}
-            <Tooltip content={tip} />
-            <Legend formatter={(v) => friendlyLabel(String(v), labels)} />
-            {yCols.map((y, i) => (
-              <Bar
-                key={y}
-                dataKey={y}
-                fill={COLORS[i % COLORS.length]}
-                radius={horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0]}
-                maxBarSize={horizontal ? 22 : 48}
-              />
-            ))}
-          </BarChart>
-        )}
-      </ResponsiveContainer>
+      <ReactECharts
+        option={option}
+        style={{ height, width: "100%" }}
+        opts={{ renderer: "canvas" }}
+        notMerge
+        lazyUpdate
+      />
     </div>
   );
+}
+
+function buildOption({
+  type,
+  chartData,
+  yCols,
+  labels,
+  horizontal,
+  xLabel,
+}: {
+  type: ChartType;
+  chartData: Record<string, unknown>[];
+  yCols: string[];
+  labels?: Record<string, string>;
+  horizontal: boolean;
+  xLabel: string;
+}): EChartsOption {
+  const categories = chartData.map((d) => String(d.name ?? ""));
+  const showLabels = chartData.length <= 10;
+  const tip = sharedTooltip(labels);
+
+  if (type === "pie") {
+    const pieY = yCols[0];
+    return {
+      color: COLORS,
+      tooltip: {
+        trigger: "item",
+        backgroundColor: "rgba(255,255,255,0.96)",
+        borderColor: "rgba(11,31,42,0.1)",
+        borderWidth: 1,
+        textStyle: { color: "#0b1f2a", fontSize: 12 },
+        formatter: (params) => {
+          const p = params as {
+            name?: string;
+            value?: number;
+            percent?: number;
+            marker?: string;
+          };
+          return `${p.marker || ""} <b>${p.name}</b><br/>${formatNumber(p.value, pieY)} (${(p.percent ?? 0).toFixed(1)}%)`;
+        },
+      },
+      legend: {
+        bottom: 0,
+        textStyle: { color: "#5b6b73", fontSize: 11 },
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["42%", "68%"],
+          center: ["50%", "46%"],
+          avoidLabelOverlap: true,
+          itemStyle: {
+            borderRadius: 6,
+            borderColor: "#fff",
+            borderWidth: 2,
+          },
+          label: {
+            formatter: "{b}\n{d}%",
+            fontSize: 11,
+            color: "#5b6b73",
+          },
+          data: chartData.map((d, i) => ({
+            name: String(d.name ?? ""),
+            value: Number(d[pieY]) || 0,
+            itemStyle: { color: COLORS[i % COLORS.length] },
+          })),
+        },
+      ],
+    };
+  }
+
+  const isCombo = type === "combo" && yCols.length >= 2;
+  const chartKind =
+    type === "combo" && yCols.length < 2
+      ? "bar"
+      : type === "combo"
+        ? "combo"
+        : type;
+
+  const axisLabel = {
+    color: "#5b6b73",
+    fontSize: 11,
+  };
+
+  const baseGrid = horizontal
+    ? { left: 88, right: 28, top: 36, bottom: 28, containLabel: false }
+    : {
+        left: 12,
+        right: isCombo ? 48 : 16,
+        top: 40,
+        bottom: 48,
+        containLabel: true,
+      };
+
+  const series = buildSeries({
+    kind: chartKind === "combo" ? "combo" : chartKind,
+    chartData,
+    yCols,
+    labels,
+    horizontal,
+    showLabels,
+    isCombo,
+  });
+
+  if (horizontal) {
+    return {
+      color: COLORS,
+      animationDuration: 700,
+      grid: baseGrid,
+      tooltip: tip,
+      legend: legendOpt(labels),
+      xAxis: {
+        type: "value",
+        axisLabel: {
+          ...axisLabel,
+          formatter: (v: number) => compactTick(v, yCols[0]),
+        },
+        splitLine: {
+          lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+        },
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: "category",
+        data: categories,
+        axisLabel,
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+      series,
+    };
+  }
+
+  return {
+    color: COLORS,
+    animationDuration: 700,
+    grid: baseGrid,
+    tooltip: tip,
+    legend: legendOpt(labels),
+    xAxis: {
+      type: "category",
+      data: categories,
+      name: xLabel,
+      nameLocation: "middle",
+      nameGap: 28,
+      nameTextStyle: { color: "#5b6b73", fontSize: 10, opacity: 0 },
+      axisLabel: {
+        ...axisLabel,
+        rotate: categories.length > 8 ? 30 : 0,
+        interval: 0,
+        hideOverlap: true,
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: isCombo
+      ? [
+          {
+            type: "value",
+            scale: true,
+            axisLabel: {
+              ...axisLabel,
+              formatter: (v: number) => compactTick(v, yCols[0]),
+            },
+            splitLine: {
+              lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+            },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+          {
+            type: "value",
+            scale: true,
+            axisLabel: {
+              ...axisLabel,
+              formatter: (v: number) => compactTick(v, yCols[1]),
+            },
+            splitLine: { show: false },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+        ]
+      : {
+          type: "value",
+          scale: true,
+          axisLabel: {
+            ...axisLabel,
+            formatter: (v: number) => compactTick(v, yCols[0]),
+          },
+          splitLine: {
+            lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+          },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+    series,
+  };
+}
+
+function buildSeries({
+  kind,
+  chartData,
+  yCols,
+  labels,
+  horizontal,
+  showLabels,
+  isCombo,
+}: {
+  kind: ChartType | "combo";
+  chartData: Record<string, unknown>[];
+  yCols: string[];
+  labels?: Record<string, string>;
+  horizontal: boolean;
+  showLabels: boolean;
+  isCombo: boolean;
+}): SeriesOption[] {
+  if (isCombo) {
+    const barCol = yCols[0];
+    const lineCol = yCols[1];
+    return [
+      {
+        name: friendlyLabel(barCol, labels),
+        type: "bar",
+        yAxisIndex: 0,
+        data: chartData.map((d) => d[barCol] as number | null),
+        barMaxWidth: 48,
+        itemStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: COLORS[0] },
+              { offset: 1, color: "#0d9488" },
+            ],
+          },
+          borderRadius: [6, 6, 0, 0],
+        },
+        label: showLabels
+          ? {
+              show: true,
+              position: "top",
+              fontSize: 10,
+              color: "#5b6b73",
+              formatter: (p: CallbackDataParams) =>
+                formatNumber(paramValue(p), barCol),
+            }
+          : undefined,
+      },
+      {
+        name: friendlyLabel(lineCol, labels),
+        type: "line",
+        yAxisIndex: 1,
+        data: chartData.map((d) => d[lineCol] as number | null),
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 7,
+        showSymbol: chartData.length <= 24,
+        lineStyle: { width: 2.6, color: COLORS[1] },
+        itemStyle: { color: COLORS[1] },
+        label: showLabels
+          ? {
+              show: true,
+              position: "top",
+              fontSize: 10,
+              color: COLORS[1],
+              formatter: (p: CallbackDataParams) =>
+                formatNumber(paramValue(p), lineCol),
+            }
+          : undefined,
+      },
+    ];
+  }
+
+  if (kind === "line" || kind === "area") {
+    return yCols.map((y, i) => {
+      const color = COLORS[i % COLORS.length];
+      return {
+        name: friendlyLabel(y, labels),
+        type: "line" as const,
+        data: chartData.map((d) => d[y] as number | null),
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 6,
+        showSymbol: false,
+        emphasis: { focus: "series" as const },
+        lineStyle: { width: 2.4, color },
+        itemStyle: { color },
+        areaStyle:
+          kind === "area"
+            ? {
+                color: {
+                  type: "linear" as const,
+                  x: 0,
+                  y: 0,
+                  x2: 0,
+                  y2: 1,
+                  colorStops: [
+                    { offset: 0, color: hexAlpha(color, 0.4) },
+                    { offset: 1, color: hexAlpha(color, 0.02) },
+                  ],
+                },
+              }
+            : undefined,
+      };
+    });
+  }
+
+  // bar (default)
+  return yCols.map((y, i) => {
+    const color = COLORS[i % COLORS.length];
+    return {
+      name: friendlyLabel(y, labels),
+      type: "bar" as const,
+      data: chartData.map((d) => d[y] as number | null),
+      barMaxWidth: horizontal ? 22 : 48,
+      barGap: "12%",
+      itemStyle: {
+        color: {
+          type: "linear" as const,
+          x: 0,
+          y: 0,
+          x2: horizontal ? 1 : 0,
+          y2: horizontal ? 0 : 1,
+          colorStops: [
+            { offset: 0, color },
+            { offset: 1, color: shade(color, -12) },
+          ],
+        },
+        borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0],
+      },
+      label: showLabels
+        ? {
+            show: true,
+            position: horizontal ? ("right" as const) : ("top" as const),
+            fontSize: 10,
+            color: "#5b6b73",
+            formatter: (p: CallbackDataParams) =>
+              formatNumber(paramValue(p), y),
+          }
+        : undefined,
+    };
+  });
+}
+
+function paramValue(p: CallbackDataParams): unknown {
+  const v = p.value;
+  if (Array.isArray(v)) return v[v.length - 1];
+  return v;
+}
+
+function sharedTooltip(
+  labels?: Record<string, string>,
+): EChartsOption["tooltip"] {
+  return {
+    trigger: "axis",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderColor: "rgba(11,31,42,0.1)",
+    borderWidth: 1,
+    textStyle: { color: "#0b1f2a", fontSize: 12 },
+    axisPointer: { type: "shadow" },
+    formatter: (params) => {
+      const list = Array.isArray(params) ? params : [params];
+      if (!list.length) return "";
+      const title = String(
+        (list[0] as { axisValueLabel?: string; name?: string }).axisValueLabel ||
+          (list[0] as { name?: string }).name ||
+          "",
+      );
+      const rows = list
+        .map((p) => {
+          const item = p as {
+            marker?: string;
+            seriesName?: string;
+            value?: number | null;
+          };
+          const key = item.seriesName || "";
+          return `${item.marker || ""} ${friendlyLabel(key, labels)}: <b>${formatNumber(item.value, key)}</b>`;
+        })
+        .join("<br/>");
+      return `<div style="margin-bottom:4px;font-weight:600">${title}</div>${rows}`;
+    },
+  };
+}
+
+function legendOpt(labels?: Record<string, string>): EChartsOption["legend"] {
+  return {
+    top: 0,
+    textStyle: { color: "#5b6b73", fontSize: 11 },
+    formatter: (name) => friendlyLabel(name, labels),
+  };
 }
 
 function formatAxisLabel(value: unknown, col: string): string {
@@ -337,7 +520,26 @@ function compactTick(v: number, colHint: string): string {
   if (!Number.isFinite(v)) return "";
   if (Math.abs(v) >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}tỷ`;
   if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}tr`;
-  if (Math.abs(v) >= 10_000) return v.toLocaleString("vi-VN", { maximumFractionDigits: 0 });
+  if (Math.abs(v) >= 10_000)
+    return v.toLocaleString("vi-VN", { maximumFractionDigits: 0 });
   if (/roe|roa|pct|percent/i.test(colHint)) return `${v}`;
   return String(Number(v.toPrecision(3)));
+}
+
+function hexAlpha(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function shade(hex: string, percent: number): string {
+  const h = hex.replace("#", "");
+  const num = parseInt(h, 16);
+  const amt = Math.round(2.55 * percent);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amt));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt));
+  const b = Math.min(255, Math.max(0, (num & 0xff) + amt));
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
