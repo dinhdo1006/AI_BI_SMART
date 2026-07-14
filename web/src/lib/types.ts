@@ -44,6 +44,8 @@ export type ArticleResponse = {
   domain_id: string;
   question: string;
   chart_image_embedded?: boolean;
+  /** Ảnh chart chỉ lưu client-side — không gửi API (tránh 500 body lớn) */
+  chart_preview_base64?: string | null;
   error?: string;
 };
 

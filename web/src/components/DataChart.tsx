@@ -108,9 +108,10 @@ export function DataChart({
     const inst = chartRef.current;
     if (!inst) return null;
     try {
+      // pixelRatio 1.25 đủ nét, tránh body request quá lớn khi gửi API
       return inst.getDataURL({
         type: "png",
-        pixelRatio: 2,
+        pixelRatio: 1.25,
         backgroundColor: "#ffffff",
       });
     } catch {

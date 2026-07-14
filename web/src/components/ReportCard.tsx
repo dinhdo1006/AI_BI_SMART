@@ -140,14 +140,17 @@ export function ReportCard({
     if (!payload.data?.length) return;
     setWriting(true);
     try {
-      const chartImage = getPngRef.current?.() || undefined;
+      const chartImage = getPngRef.current?.() || null;
       const article = await postArticle({
         domainId,
         question: payload.query,
         data: payload.data,
         insightSummary: payload.insight || "",
-        chartImageBase64: chartImage,
       });
+      // Ghép ảnh chart phía client — không gửi API
+      if (!article.error && chartImage) {
+        article.chart_preview_base64 = chartImage;
+      }
       updateMessage(messageId, { article });
     } finally {
       setWriting(false);
@@ -393,7 +396,7 @@ export function ReportCard({
               className="inline-flex items-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm font-semibold text-foam transition hover:bg-ink-soft disabled:opacity-50"
             >
               <Newspaper className="h-4 w-4" />
-              {writing ? "Đang viết…" : "Viết bài báo"}
+              {writing ? "Đang viết (1–3 phút)…" : "Viết bài báo"}
             </button>
             <button
               type="button"

@@ -309,41 +309,48 @@ def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
             detail=f"Lỗi Narrative Planner (Ollama): {exc}",
         ) from exc
 
-    markdown = str(result["article_markdown"] or "")
-    chart_embedded = False
-    if request.chart_image_base64:
-        img = request.chart_image_base64.strip()
-        if not img.startswith("data:"):
-            img = f"data:image/png;base64,{img}"
-        # Chèn ảnh sau tiêu đề # đầu tiên (hoặc đầu bài)
-        lines = markdown.splitlines()
-        insert_at = 0
-        for i, line in enumerate(lines):
-            if line.lstrip().startswith("# ") and not line.lstrip().startswith("##"):
-                insert_at = i + 1
-                break
-        chart_block = [
-            "",
-            "![Biểu đồ phân tích](" + img + ")",
-            "",
-            "*Biểu đồ minh họa dữ liệu truy vấn.*",
-            "",
-        ]
-        lines[insert_at:insert_at] = chart_block
-        markdown = "\n".join(lines)
-        chart_embedded = True
-        # Cập nhật word_count thô
-        result["word_count"] = len(markdown.split())
+    try:
+        markdown = str(result["article_markdown"] or "")
+        chart_embedded = False
+        # Chỉ nhúng ảnh nhỏ — tránh response JSON quá lớn / OOM
+        if request.chart_image_base64 and len(request.chart_image_base64) < 800_000:
+            img = request.chart_image_base64.strip()
+            if not img.startswith("data:"):
+                img = f"data:image/png;base64,{img}"
+            lines = markdown.splitlines()
+            insert_at = 0
+            for i, line in enumerate(lines):
+                if line.lstrip().startswith("# ") and not line.lstrip().startswith("##"):
+                    insert_at = i + 1
+                    break
+            chart_block = [
+                "",
+                "![Biểu đồ phân tích](" + img + ")",
+                "",
+                "*Biểu đồ minh họa dữ liệu truy vấn.*",
+                "",
+            ]
+            lines[insert_at:insert_at] = chart_block
+            markdown = "\n".join(lines)
+            chart_embedded = True
+            result["word_count"] = len(markdown.split())
 
-    return ArticleResponse(
-        article_markdown=markdown,
-        outline=result["outline"],
-        word_count=int(result["word_count"]),
-        sections_written=int(result.get("sections_written") or 0),
-        domain_id=request.domain_id,
-        question=request.question,
-        chart_image_embedded=chart_embedded,
-    )
+        return ArticleResponse(
+            article_markdown=markdown,
+            outline=result["outline"],
+            word_count=int(result["word_count"]),
+            sections_written=int(result.get("sections_written") or 0),
+            domain_id=request.domain_id,
+            question=request.question,
+            chart_image_embedded=chart_embedded,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi xử lý bài báo: {exc}",
+        ) from exc
 
 
 @router.post("/export/word")

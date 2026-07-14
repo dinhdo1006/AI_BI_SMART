@@ -176,8 +176,8 @@ export async function postArticle(params: {
   question: string;
   data: Record<string, unknown>[];
   insightSummary?: string;
-  chartImageBase64?: string;
 }): Promise<ArticleResponse> {
+  // Không gửi PNG trong body — dễ bị proxy nginx trả 500. Ảnh ghép phía client.
   const res = await fetch(apiUrl("/api/v1/generate_article"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -186,17 +186,21 @@ export async function postArticle(params: {
       question: params.question,
       data: params.data,
       insight_summary: params.insightSummary || "",
-      chart_image_base64: params.chartImageBase64 || null,
     }),
   });
   if (!res.ok) {
+    const detail = await parseError(res);
     return {
       article_markdown: "",
       outline: {},
       word_count: 0,
       domain_id: params.domainId,
       question: params.question,
-      error: await parseError(res),
+      error:
+        detail ||
+        (res.status === 502 || res.status === 504
+          ? "Ollama timeout hoặc chưa chạy — kiểm tra model qwen2.5"
+          : `HTTP ${res.status} ${res.statusText}`),
     };
   }
   return (await res.json()) as ArticleResponse;

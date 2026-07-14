@@ -21,6 +21,12 @@ export function ArticlePanel({
     );
   }
 
+  const chartSrc = article.chart_preview_base64
+    ? article.chart_preview_base64.startsWith("data:")
+      ? article.chart_preview_base64
+      : `data:image/png;base64,${article.chart_preview_base64}`
+    : null;
+
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-foam/50">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
@@ -58,6 +64,14 @@ export function ArticlePanel({
         </div>
       </div>
       <div className="prose-article max-h-[560px] overflow-y-auto px-5 py-4 scrollbar-thin">
+        {chartSrc && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={chartSrc}
+            alt="Biểu đồ phân tích"
+            className="mb-5 max-h-[320px] w-full rounded-xl border border-line object-contain bg-white"
+          />
+        )}
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
