@@ -44,6 +44,7 @@ export function ChatPanel() {
   const addAssistant = useChatStore((s) => s.addAssistant);
   const setLoading = useChatStore((s) => s.setLoading);
   const lastData = useChatStore((s) => s.lastData);
+  const lastInsight = useChatStore((s) => s.lastInsight);
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -78,6 +79,7 @@ export function ChatPanel() {
 
     const reuse =
       isVizOnlyRequest(query) && lastData() ? lastData() : null;
+    const previousInsight = reuse ? lastInsight() : "";
 
     if (reuse) {
       setLoading(true, "Đang đổi loại biểu đồ…");
@@ -97,6 +99,7 @@ export function ChatPanel() {
         query,
         history: historyForApi,
         reuseData: reuse,
+        previousInsight,
         onProgress: (step) => setLoading(true, step),
       });
       payload.query = query;

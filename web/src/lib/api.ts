@@ -65,6 +65,7 @@ export async function postChat(params: {
   query: string;
   history: HistoryMessage[];
   reuseData?: Record<string, unknown>[] | null;
+  previousInsight?: string;
 }): Promise<ChatResponse> {
   const res = await fetch(apiUrl("/api/v1/chat"), {
     method: "POST",
@@ -74,6 +75,7 @@ export async function postChat(params: {
       query: params.query,
       history: params.history,
       reuse_data: params.reuseData ?? null,
+      previous_insight: params.previousInsight || "",
     }),
   });
   if (!res.ok) {
@@ -100,6 +102,7 @@ export async function postChatStream(params: {
   query: string;
   history: HistoryMessage[];
   reuseData?: Record<string, unknown>[] | null;
+  previousInsight?: string;
   onProgress?: (step: string) => void;
 }): Promise<ChatResponse> {
   try {
@@ -111,6 +114,7 @@ export async function postChatStream(params: {
         query: params.query,
         history: params.history,
         reuse_data: params.reuseData ?? null,
+        previous_insight: params.previousInsight || "",
       }),
     });
 
@@ -176,8 +180,16 @@ export async function postArticle(params: {
   question: string;
   data: Record<string, unknown>[];
   insightSummary?: string;
+  onProgress?: (step: string) => void;
 }): Promise<ArticleResponse> {
-  // Không gửi PNG trong body — dễ bị proxy nginx trả 500. Ảnh ghép phía client.
+  // Ưu tiên SSE để hiện progress; fallback POST cũ nếu stream lỗi
+  try {
+    const streamed = await postArticleStream(params);
+    if (streamed) return streamed;
+  } catch {
+    /* fallback below */
+  }
+
   const res = await fetch(apiUrl("/api/v1/generate_article"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -206,6 +218,77 @@ export async function postArticle(params: {
     };
   }
   return (await res.json()) as ArticleResponse;
+}
+
+/** SSE viết bài — hiện progress từ backend. */
+async function postArticleStream(params: {
+  domainId: string;
+  question: string;
+  data: Record<string, unknown>[];
+  insightSummary?: string;
+  onProgress?: (step: string) => void;
+}): Promise<ArticleResponse | null> {
+  const res = await fetch(apiUrl("/api/v1/generate_article/stream"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({
+      domain_id: params.domainId,
+      question: params.question,
+      data: params.data,
+      insight_summary: params.insightSummary || "",
+    }),
+  });
+
+  if (!res.ok || !res.body) return null;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: ArticleResponse | null = null;
+  let streamError: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const part of parts) {
+      const line = part.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        const json = JSON.parse(line.slice(6)) as {
+          event: string;
+          step?: string;
+          data?: ArticleResponse;
+        };
+        if (json.event === "progress" && json.step) {
+          params.onProgress?.(json.step);
+        } else if (json.event === "result" && json.data) {
+          result = json.data;
+        } else if (json.event === "error") {
+          streamError = json.step || "Lỗi stream viết bài";
+        }
+      } catch {
+        /* ignore bad chunk */
+      }
+    }
+  }
+
+  if (streamError) {
+    return {
+      article_markdown: "",
+      outline: {},
+      word_count: 0,
+      domain_id: params.domainId,
+      question: params.question,
+      error: streamError,
+    };
+  }
+  return result;
 }
 
 export async function exportWord(params: {

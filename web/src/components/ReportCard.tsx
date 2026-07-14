@@ -88,6 +88,7 @@ export function ReportCard({
     (payload.chart_type || "bar") === "table",
   );
   const [writing, setWriting] = useState(false);
+  const [writingLabel, setWritingLabel] = useState("Đang viết bài…");
   const [exporting, setExporting] = useState(false);
   const [savingDash, setSavingDash] = useState(false);
   const [sendingVote, setSendingVote] = useState(false);
@@ -108,9 +109,15 @@ export function ReportCard({
     [chartType, payload.data, hasData],
   );
 
-  // Viz-only chỉ có insight ngắn ("Đã chuyển hiển thị…") — Word cần nội dung phân tích gốc
+  // Viz-only: ưu tiên insight đã gắn từ backend (previous_insight);
+  // fallback tìm báo cáo gốc nếu vẫn chỉ là câu ngắn.
   const resolvedInsight = useMemo(() => {
     if (payload.viz_only) {
+      const text = (payload.insight || "").trim();
+      const isShortSwitch =
+        !text ||
+        (/^Đã chuyển hiển thị/i.test(text) && text.length < 160);
+      if (text && !isShortSwitch) return text;
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
         if (
@@ -122,8 +129,7 @@ export function ReportCard({
           return m.payload.insight;
         }
       }
-      // Không tìm được gốc — dùng insight ngắn hiện tại
-      return payload.insight || "";
+      return text;
     }
     return payload.insight || "";
   }, [payload.insight, payload.viz_only, messages, messageId]);
@@ -169,6 +175,7 @@ export function ReportCard({
   async function writeArticle() {
     if (!payload.data?.length) return;
     setWriting(true);
+    setWritingLabel("Đang chuẩn bị…");
     try {
       const chartImage = getPngRef.current?.() || null;
       const article = await postArticle({
@@ -176,6 +183,7 @@ export function ReportCard({
         question: payload.query,
         data: payload.data,
         insightSummary: resolvedInsight,
+        onProgress: (step) => setWritingLabel(step),
       });
       // Ghép ảnh chart phía client — không gửi API
       if (!article.error && chartImage) {
@@ -198,6 +206,7 @@ export function ReportCard({
       });
     } finally {
       setWriting(false);
+      setWritingLabel("Đang viết bài…");
     }
   }
 
@@ -456,7 +465,7 @@ export function ReportCard({
               className="inline-flex items-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm font-semibold text-foam transition hover:bg-ink-soft disabled:opacity-50"
             >
               <Newspaper className="h-4 w-4" />
-              {writing ? "Đang viết (1–3 phút)…" : "Viết bài báo"}
+              {writing ? writingLabel : "Viết bài báo"}
             </button>
             <button
               type="button"

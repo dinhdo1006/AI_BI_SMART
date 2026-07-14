@@ -119,6 +119,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Data lần trước (khi user chỉ yêu cầu đổi chart)",
     )
+    previous_insight: str = Field(
+        default="",
+        description="Insight báo cáo gốc — dùng lại khi viz_only để Word/UI không mất nội dung",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -310,40 +314,7 @@ def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
         ) from exc
 
     try:
-        markdown = str(result["article_markdown"] or "")
-        chart_embedded = False
-        # Chỉ nhúng ảnh nhỏ — tránh response JSON quá lớn / OOM
-        if request.chart_image_base64 and len(request.chart_image_base64) < 800_000:
-            img = request.chart_image_base64.strip()
-            if not img.startswith("data:"):
-                img = f"data:image/png;base64,{img}"
-            lines = markdown.splitlines()
-            insert_at = 0
-            for i, line in enumerate(lines):
-                if line.lstrip().startswith("# ") and not line.lstrip().startswith("##"):
-                    insert_at = i + 1
-                    break
-            chart_block = [
-                "",
-                "![Biểu đồ phân tích](" + img + ")",
-                "",
-                "*Biểu đồ minh họa dữ liệu truy vấn.*",
-                "",
-            ]
-            lines[insert_at:insert_at] = chart_block
-            markdown = "\n".join(lines)
-            chart_embedded = True
-            result["word_count"] = len(markdown.split())
-
-        return ArticleResponse(
-            article_markdown=markdown,
-            outline=result["outline"],
-            word_count=int(result["word_count"]),
-            sections_written=int(result.get("sections_written") or 0),
-            domain_id=request.domain_id,
-            question=request.question,
-            chart_image_embedded=chart_embedded,
-        )
+        return _build_article_response(request, result)
     except HTTPException:
         raise
     except Exception as exc:
@@ -351,6 +322,151 @@ def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
             status_code=500,
             detail=f"Lỗi xử lý bài báo: {exc}",
         ) from exc
+
+
+def _build_article_response(
+    request: ArticleRequest,
+    result: dict[str, Any],
+) -> ArticleResponse:
+    markdown = str(result["article_markdown"] or "")
+    chart_embedded = False
+    if request.chart_image_base64 and len(request.chart_image_base64) < 800_000:
+        img = request.chart_image_base64.strip()
+        if not img.startswith("data:"):
+            img = f"data:image/png;base64,{img}"
+        lines = markdown.splitlines()
+        insert_at = 0
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("# ") and not line.lstrip().startswith("##"):
+                insert_at = i + 1
+                break
+        chart_block = [
+            "",
+            "![Biểu đồ phân tích](" + img + ")",
+            "",
+            "*Biểu đồ minh họa dữ liệu truy vấn.*",
+            "",
+        ]
+        lines[insert_at:insert_at] = chart_block
+        markdown = "\n".join(lines)
+        chart_embedded = True
+        result["word_count"] = len(markdown.split())
+
+    return ArticleResponse(
+        article_markdown=markdown,
+        outline=result["outline"],
+        word_count=int(result["word_count"]),
+        sections_written=int(result.get("sections_written") or 0),
+        domain_id=request.domain_id,
+        question=request.question,
+        chart_image_embedded=chart_embedded,
+    )
+
+
+@router.post("/generate_article/stream")
+def generate_article_stream(request: ArticleRequest) -> StreamingResponse:
+    """
+    SSE: progress thật từ Narrative Planner + event result cuối.
+    """
+
+    def event_gen():
+        q: queue_mod.Queue[tuple[str, Any]] = queue_mod.Queue()
+
+        def emit_progress(step: str) -> None:
+            q.put(("progress", step))
+
+        def worker() -> None:
+            try:
+                try:
+                    domain_config = load_domain_config(request.domain_id)
+                except FileNotFoundError as exc:
+                    q.put(("error", str(exc)))
+                    return
+                except ValueError as exc:
+                    q.put(("error", str(exc)))
+                    return
+
+                domain_name = str(
+                    domain_config.get("domain_name") or request.domain_id
+                )
+                labels = domain_config.get("column_labels", {}) or {}
+                data_for_article = request.data
+                if labels:
+                    data_for_article = [
+                        {labels.get(k, k): v for k, v in row.items()}
+                        for row in request.data
+                    ]
+                stats = request.stats or compute_insight_stats(data_for_article)
+                result = generate_article(
+                    question=request.question,
+                    domain_name=domain_name,
+                    data=data_for_article,
+                    stats=stats,
+                    insight_summary=request.insight_summary or "",
+                    domain_id=request.domain_id,
+                    on_progress=emit_progress,
+                )
+                resp = _build_article_response(request, result)
+                q.put(("result", resp))
+            except Exception as exc:  # noqa: BLE001
+                q.put(("error", f"Lỗi Narrative Planner: {exc}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        while True:
+            try:
+                kind, payload = q.get(timeout=120)
+            except queue_mod.Empty:
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "event": "progress",
+                            "step": "Đang chờ model Ollama…",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                continue
+
+            if kind == "progress":
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"event": "progress", "step": str(payload)},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                continue
+            if kind == "result":
+                data = payload.model_dump(mode="json")
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"event": "result", "data": data}, ensure_ascii=False
+                    )
+                    + "\n\n"
+                )
+                break
+            yield (
+                "data: "
+                + json.dumps(
+                    {"event": "error", "step": str(payload)}, ensure_ascii=False
+                )
+                + "\n\n"
+            )
+            break
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/export/word")
@@ -466,16 +582,25 @@ def chat(request: ChatRequest) -> ChatResponse:
             labels = load_domain_config(request.domain_id).get("column_labels", {}) or {}
         except Exception:
             labels = {}
+        prev = (request.previous_insight or "").strip()
+        if prev:
+            insight_text = (
+                f"{prev}\n\n---\n\n"
+                f"_Đã chuyển hiển thị sang biểu đồ **{chart_label}** "
+                f"trên cùng bộ dữ liệu ({len(request.reuse_data)} dòng)._"
+            )
+        else:
+            insight_text = (
+                f"Đã chuyển hiển thị sang biểu đồ **{chart_label}** "
+                f"trên cùng bộ dữ liệu ({len(request.reuse_data)} dòng)."
+            )
         resp = ChatResponse(
             status="success",
             domain_id=request.domain_id,
             query=request.query,
             sql_query=sql,
             data=request.reuse_data,
-            insight=(
-                f"Đã chuyển hiển thị sang biểu đồ **{chart_label}** "
-                f"trên cùng bộ dữ liệu ({len(request.reuse_data)} dòng)."
-            ),
+            insight=insight_text,
             row_count=len(request.reuse_data),
             chart_type=chart,
             viz_only=True,
@@ -574,6 +699,18 @@ def chat(request: ChatRequest) -> ChatResponse:
             chart = resolve_chart_type(
                 request.query, history=history_dicts, data=request.reuse_data
             )
+            prev = (request.previous_insight or "").strip()
+            if prev:
+                insight_text = (
+                    f"{prev}\n\n---\n\n"
+                    f"_Đã chuyển hiển thị theo yêu cầu trên cùng bộ dữ liệu "
+                    f"({len(request.reuse_data)} dòng)._"
+                )
+            else:
+                insight_text = (
+                    f"Đã chuyển hiển thị theo yêu cầu trên cùng bộ dữ liệu "
+                    f"({len(request.reuse_data)} dòng)."
+                )
             _log_out("success", row_count=len(request.reuse_data), viz_only=True)
             return ChatResponse(
                 status="success",
@@ -581,10 +718,7 @@ def chat(request: ChatRequest) -> ChatResponse:
                 query=request.query,
                 sql_query=sql,
                 data=request.reuse_data,
-                insight=(
-                    f"Đã chuyển hiển thị theo yêu cầu trên cùng bộ dữ liệu "
-                    f"({len(request.reuse_data)} dòng)."
-                ),
+                insight=insight_text,
                 row_count=len(request.reuse_data),
                 chart_type=chart,
                 viz_only=True,

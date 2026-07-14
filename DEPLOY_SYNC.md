@@ -129,4 +129,6 @@ tail -f ~/nextjs_bi.log    # log Next.js
 API_BASE=http://127.0.0.1:2004
 SQL_MODEL=sqlcoder:7b
 INSIGHT_MODEL=qwen2.5:14b
+# Viết bài: fast = 1 LLM call (mặc định); full = outline + từng mục + finalize
+NARRATIVE_MODE=fast
 ```

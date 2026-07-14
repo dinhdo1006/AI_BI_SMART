@@ -22,6 +22,7 @@ type ChatState = {
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   setLoading: (loading: boolean, label?: string) => void;
   lastData: () => Record<string, unknown>[] | null;
+  lastInsight: () => string;
 };
 
 export const useChatStore = create<ChatState>()(
@@ -84,6 +85,15 @@ export const useChatStore = create<ChatState>()(
           if (d && d.length) return d;
         }
         return null;
+      },
+
+      lastInsight: () => {
+        const msgs = get().messages;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const p = msgs[i].payload;
+          if (p?.insight && !p.viz_only) return p.insight;
+        }
+        return "";
       },
     }),
     {

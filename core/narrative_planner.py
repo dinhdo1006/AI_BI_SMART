@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 from langchain_ollama import OllamaLLM
 
@@ -13,10 +13,15 @@ from core.insight_stats import compute_insight_stats
 from core.ollama_client import make_ollama_llm
 
 _NARRATIVE_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:14b")
-_MAX_SAMPLE_ROWS = 40
+_MAX_SAMPLE_ROWS = 25
+# fast = 1 LLM call (mặc định, nhanh với 14b); full = outline + từng mục + finalize
+_NARRATIVE_MODE = (os.getenv("NARRATIVE_MODE") or "fast").strip().lower()
 _OUTLINE_NUM_PREDICT = 600
 _SECTION_NUM_PREDICT = 700
 _FINALIZE_NUM_PREDICT = 1200
+_FULL_ARTICLE_NUM_PREDICT = 2200
+
+ProgressCb = Callable[[str], None] | None
 
 _JSON_FENCE = re.compile(
     r"```(?:json)?\s*\n?(.*?)\n?```",
@@ -37,12 +42,12 @@ _FINANCE_KEYWORDS = (
 )
 
 
-def _get_llm(*, num_predict: int, temperature: float = 0.2) -> OllamaLLM:
+def _get_llm(*, num_predict: int, temperature: float = 0.2, timeout: float = 240) -> OllamaLLM:
     return make_ollama_llm(
         model=_NARRATIVE_MODEL,
         temperature=temperature,
         num_predict=num_predict,
-        timeout=180,
+        timeout=timeout,
     )
 
 
@@ -89,14 +94,9 @@ def _default_outline_bi(question: str, domain_name: str) -> dict[str, Any]:
                 "focus": "So sánh, xu hướng, biến động theo kỳ",
             },
             {
-                "id": "risks",
-                "heading": "Rủi ro và giới hạn",
-                "focus": "Hạn chế dữ liệu, điểm cần thận trọng",
-            },
-            {
                 "id": "conclusion",
-                "heading": "Kết luận và khuyến nghị",
-                "focus": "Hành động theo dõi tiếp theo",
+                "heading": "Kết luận, rủi ro và khuyến nghị",
+                "focus": "Hạn chế dữ liệu + hành động theo dõi tiếp theo",
             },
         ],
     }
@@ -134,14 +134,9 @@ def _default_outline_vietstock(question: str, domain_name: str) -> dict[str, Any
                 "focus": "So sánh đối tượng, outlier, correlation nếu có",
             },
             {
-                "id": "risks",
-                "heading": "Rủi ro & giới hạn dữ liệu",
-                "focus": "Rủi ro diễn giải + hạn chế mẫu dữ liệu",
-            },
-            {
                 "id": "conclusion",
-                "heading": "Kết luận",
-                "focus": "Tóm tắt ngắn + điểm cần theo dõi tiếp",
+                "heading": "Kết luận, rủi ro và điểm theo dõi",
+                "focus": "Rủi ro diễn giải + hạn chế mẫu + tóm tắt ngắn",
             },
         ],
     }
@@ -383,6 +378,99 @@ Bài báo:"""
     return "\n".join(parts).strip()
 
 
+def write_full_article_one_shot(
+    *,
+    outline: dict[str, Any],
+    question: str,
+    stats: dict[str, Any],
+    sample_rows: list[dict[str, Any]],
+    insight_summary: str = "",
+) -> str:
+    """
+    Viết cả bài trong 1 lần gọi LLM (nhanh với model 7b/14b).
+    Dùng dàn ý cố định — không gọi outline/finalize riêng.
+    """
+    stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
+    sample_json = json.dumps(
+        sample_rows[:_MAX_SAMPLE_ROWS], ensure_ascii=False, indent=2
+    )
+    vietstock = (outline.get("style") or "") == "vietstock"
+    style_note = (
+        "Phong cách Vietstock: ngôn ngữ nhà đầu tư, khuyến nghị quan sát "
+        "(Theo dõi / Tích cực / Thận trọng) nếu phù hợp; không bịa giá mục tiêu."
+        if vietstock
+        else "Phong cách BI nội bộ, rõ ràng, có số liệu."
+    )
+    section_lines = []
+    for sec in outline.get("sections") or []:
+        section_lines.append(
+            f"- ## {sec.get('heading')}: {sec.get('focus')}"
+        )
+    sections_block = "\n".join(section_lines) or "- ## Phát hiện chính\n- ## Kết luận"
+
+    prompt = f"""Bạn là biên tập viên phân tích dữ liệu.
+Viết MỘT bài báo tiếng Việt hoàn chỉnh (khoảng 600–900 từ) dựa trên thống kê có sẵn.
+{style_note}
+Chỉ dùng số trong THỐNG KÊ / MẪU — tuyệt đối không bịa số, không bịa P/E hay giá mục tiêu.
+
+=== CÂU HỎI ===
+{question}
+
+=== META ===
+Tiêu đề đề xuất: {outline.get("title")}
+Góc bài: {outline.get("angle")}
+Đối tượng: {outline.get("audience")}
+
+=== DÀN Ý CÁC MỤC (bắt buộc có ## tương ứng) ===
+{sections_block}
+
+=== TÓM TẮT INSIGHT SẴN CÓ (tham khảo, không copy nguyên) ===
+{(insight_summary or "")[:1200] or "(không có)"}
+
+=== THỐNG KÊ ===
+{stats_json}
+
+=== MẪU DỮ LIỆU ===
+{sample_json}
+
+=== YÊU CẦU OUTPUT ===
+1. Dòng đầu: # Tiêu đề hấp dẫn
+2. Đoạn lead 2–3 câu ngay sau tiêu đề (trước ## đầu tiên)
+3. Các mục ## theo dàn ý, viết liền mạch có số liệu
+4. Markdown sạch, không code fence, không nhắc SQL/LLM
+
+Bài báo:"""
+    try:
+        article = (
+            _get_llm(
+                num_predict=_FULL_ARTICLE_NUM_PREDICT,
+                temperature=0.25,
+                timeout=300,
+            )
+            .invoke(prompt)
+            .strip()
+        )
+        if article:
+            if not article.lstrip().startswith("#"):
+                title = outline.get("title") or f"Phân tích: {question[:60]}"
+                article = f"# {title}\n\n{article}"
+            return article
+    except Exception:
+        pass
+
+    # Fallback tối thiểu khi LLM lỗi
+    title = outline.get("title") or f"Phân tích: {question[:60]}"
+    highlights = json.dumps(stats.get("highlights") or {}, ensure_ascii=False)
+    return (
+        f"# {title}\n\n"
+        f"*{outline.get('angle') or ''}*\n\n"
+        f"## Phát hiện chính\n\n"
+        f"Thống kê nổi bật: {highlights}\n\n"
+        f"## Kết luận\n\n"
+        f"(Chưa sinh được bài đầy đủ — kiểm tra Ollama / INSIGHT_MODEL.)"
+    )
+
+
 def generate_article(
     *,
     question: str,
@@ -391,38 +479,69 @@ def generate_article(
     stats: dict[str, Any] | None = None,
     insight_summary: str = "",
     domain_id: str = "",
+    on_progress: ProgressCb = None,
 ) -> dict[str, Any]:
     """
-    Pipeline đầy đủ: outline → write_sections → finalize_article.
+    Pipeline viết bài.
 
-    Returns:
-        { article_markdown, outline, word_count, stats }
+    - fast (mặc định): dàn ý cố định + 1 LLM call
+    - full: outline → từng section → finalize (chậm, NARRATIVE_MODE=full)
     """
+    def _progress(msg: str) -> None:
+        if on_progress:
+            try:
+                on_progress(msg)
+            except Exception:
+                pass
+
+    _progress("Đang tính thống kê…")
     computed = stats if stats is not None else compute_insight_stats(data)
-    outline = outline_plan(
-        question=question,
-        domain_name=domain_name,
-        stats=computed,
-        insight_summary=insight_summary,
-        domain_id=domain_id,
-    )
-    sections = write_sections(
-        outline=outline,
-        question=question,
-        stats=computed,
-        sample_rows=data,
-    )
-    article = finalize_article(
-        outline=outline,
-        sections=sections,
-        question=question,
-    )
+
+    mode = _NARRATIVE_MODE
+    if mode == "full":
+        _progress("Đang lập dàn ý…")
+        outline = outline_plan(
+            question=question,
+            domain_name=domain_name,
+            stats=computed,
+            insight_summary=insight_summary,
+            domain_id=domain_id,
+        )
+        _progress(f"Đang viết {len(outline.get('sections') or [])} mục…")
+        sections = write_sections(
+            outline=outline,
+            question=question,
+            stats=computed,
+            sample_rows=data,
+        )
+        _progress("Đang hoàn thiện bài…")
+        article = finalize_article(
+            outline=outline,
+            sections=sections,
+            question=question,
+        )
+        sections_written = len(sections)
+    else:
+        _progress("Đang chuẩn bị dàn ý…")
+        outline = _default_outline(question, domain_name, domain_id)
+        _progress("Đang viết bài hoàn chỉnh (1 lượt)…")
+        article = write_full_article_one_shot(
+            outline=outline,
+            question=question,
+            stats=computed,
+            sample_rows=data,
+            insight_summary=insight_summary,
+        )
+        sections_written = len(outline.get("sections") or [])
+
+    _progress("Đã xong — đang trả kết quả…")
     word_count = len(re.findall(r"\S+", article))
     return {
         "article_markdown": article,
         "outline": outline,
         "word_count": word_count,
         "stats": computed,
-        "sections_written": len(sections),
+        "sections_written": sections_written,
         "style": outline.get("style") or "bi",
+        "mode": mode if mode == "full" else "fast",
     }
