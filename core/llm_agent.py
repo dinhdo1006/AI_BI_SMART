@@ -7,7 +7,8 @@ import os
 import re
 from typing import Any
 
-from langchain_community.llms import Ollama
+from core.ollama_client import make_ollama_llm
+from langchain_ollama import OllamaLLM
 
 from core.db_dialect import SqlDialect, detect_dialect, dialect_label
 from core.insight_stats import compute_insight_stats
@@ -199,9 +200,9 @@ def _clean_sql_output(raw: str) -> str:
     return cleaned.rstrip(";").strip()
 
 
-def _get_llm(*, model: str, num_predict: int = 512) -> Ollama:
+def _get_llm(*, model: str, num_predict: int = 512) -> OllamaLLM:
     """Khởi tạo Ollama LLM — giới hạn num_predict để phản hồi nhanh hơn."""
-    return Ollama(
+    return make_ollama_llm(
         model=model,
         temperature=0.0,
         num_predict=num_predict,

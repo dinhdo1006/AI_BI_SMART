@@ -7,9 +7,10 @@ import os
 import re
 from typing import Any
 
-from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM
 
 from core.insight_stats import compute_insight_stats
+from core.ollama_client import make_ollama_llm
 
 _NARRATIVE_MODEL = os.getenv("INSIGHT_MODEL", "qwen2.5:7b")
 _MAX_SAMPLE_ROWS = 40
@@ -36,8 +37,8 @@ _FINANCE_KEYWORDS = (
 )
 
 
-def _get_llm(*, num_predict: int, temperature: float = 0.2) -> Ollama:
-    return Ollama(
+def _get_llm(*, num_predict: int, temperature: float = 0.2) -> OllamaLLM:
+    return make_ollama_llm(
         model=_NARRATIVE_MODEL,
         temperature=temperature,
         num_predict=num_predict,

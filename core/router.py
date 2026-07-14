@@ -6,9 +6,9 @@ import os
 import re
 from typing import Literal
 
-from langchain_community.llms import Ollama
-
+from core.ollama_client import make_ollama_llm
 from core.viz_advisor import is_viz_only_request
+from langchain_ollama import OllamaLLM
 
 Intent = Literal["sql", "viz", "followup", "chitchat", "oos"]
 
@@ -92,8 +92,8 @@ Câu hỏi: {query}
 Intent:"""
 
 
-def _get_router_llm() -> Ollama:
-    return Ollama(
+def _get_router_llm() -> OllamaLLM:
+    return make_ollama_llm(
         model=_ROUTER_MODEL,
         temperature=0.0,
         num_predict=_ROUTER_NUM_PREDICT,
@@ -185,7 +185,7 @@ def answer_chitchat(query: str) -> str:
         "Trợ lý:"
     )
     try:
-        llm = Ollama(
+        llm = make_ollama_llm(
             model=_ROUTER_MODEL,
             temperature=0.3,
             num_predict=256,
