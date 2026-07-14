@@ -111,6 +111,62 @@ export type DomainsHealth = {
   >;
 };
 
+export type AlertOperator = "gt" | "gte" | "lt" | "lte" | "eq";
+
+export type AlertMetric = {
+  key: string;
+  label: string;
+  unit: string;
+  needs_target: boolean;
+  target_label: string;
+  target_placeholder?: string;
+  description?: string;
+};
+
+export type AlertRule = {
+  id: string;
+  domain_id: string;
+  name: string;
+  metric_key: string;
+  operator: AlertOperator;
+  threshold: number;
+  target: string | null;
+  enabled: boolean;
+  created_at: string;
+  last_checked_at?: string | null;
+  last_value?: number | null;
+  last_triggered?: boolean;
+};
+
+export type AlertEvent = {
+  id: string;
+  rule_id: string;
+  rule_name: string;
+  domain_id: string;
+  triggered_at: string;
+  value: number;
+  message: string;
+  metric_key: string;
+  operator: string;
+  threshold: number;
+  target: string | null;
+};
+
+export type AlertRunResult = {
+  checked: number;
+  triggered_count: number;
+  error_count: number;
+  results: Array<{
+    rule_id: string;
+    rule_name?: string;
+    status: string;
+    triggered: boolean;
+    message: string;
+    value?: number;
+  }>;
+  triggered: Array<Record<string, unknown>>;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";

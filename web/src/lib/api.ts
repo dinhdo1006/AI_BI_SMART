@@ -1,4 +1,9 @@
 import type {
+  AlertEvent,
+  AlertMetric,
+  AlertOperator,
+  AlertRule,
+  AlertRunResult,
   ArticleResponse,
   ChatResponse,
   DashboardPayload,
@@ -397,4 +402,100 @@ export async function postFeedback(params: {
   } catch {
     return false;
   }
+}
+
+export async function fetchAlertMetrics(
+  domainId: string,
+): Promise<AlertMetric[]> {
+  const res = await fetch(
+    apiUrl(`/api/v1/alerts/metrics?domain_id=${encodeURIComponent(domainId)}`),
+    { cache: "no-store" },
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.metrics || []) as AlertMetric[];
+}
+
+export async function fetchAlertRules(
+  domainId: string,
+): Promise<AlertRule[]> {
+  const res = await fetch(
+    apiUrl(`/api/v1/alerts/rules?domain_id=${encodeURIComponent(domainId)}`),
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = await res.json();
+  return (data.rules || []) as AlertRule[];
+}
+
+export async function createAlertRule(params: {
+  domainId: string;
+  name: string;
+  metricKey: string;
+  operator: AlertOperator;
+  threshold: number;
+  target?: string;
+}): Promise<AlertRule> {
+  const res = await fetch(apiUrl("/api/v1/alerts/rules"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      domain_id: params.domainId,
+      name: params.name,
+      metric_key: params.metricKey,
+      operator: params.operator,
+      threshold: params.threshold,
+      target: params.target || null,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as AlertRule;
+}
+
+export async function patchAlertRule(
+  ruleId: string,
+  body: { enabled?: boolean; name?: string; threshold?: number },
+): Promise<AlertRule> {
+  const res = await fetch(apiUrl(`/api/v1/alerts/rules/${ruleId}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as AlertRule;
+}
+
+export async function deleteAlertRule(ruleId: string): Promise<boolean> {
+  const res = await fetch(apiUrl(`/api/v1/alerts/rules/${ruleId}`), {
+    method: "DELETE",
+  });
+  return res.ok;
+}
+
+export async function runAlerts(
+  domainId?: string,
+): Promise<AlertRunResult> {
+  const q = domainId
+    ? `?domain_id=${encodeURIComponent(domainId)}`
+    : "";
+  const res = await fetch(apiUrl(`/api/v1/alerts/run${q}`), {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as AlertRunResult;
+}
+
+export async function fetchAlertEvents(
+  domainId: string,
+  limit = 20,
+): Promise<AlertEvent[]> {
+  const res = await fetch(
+    apiUrl(
+      `/api/v1/alerts/events?domain_id=${encodeURIComponent(domainId)}&limit=${limit}`,
+    ),
+    { cache: "no-store" },
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.events || []) as AlertEvent[];
 }

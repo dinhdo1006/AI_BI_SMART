@@ -22,6 +22,7 @@ import { promptsForDomain } from "@/lib/domain-prompts";
 import type { DomainExplore, DomainsHealth } from "@/lib/types";
 import { useChatStore, type ChatSession } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
+import { AlertPanel } from "@/components/AlertPanel";
 
 export function Sidebar() {
   const domains = useChatStore((s) => s.domains);
@@ -158,6 +159,8 @@ export function Sidebar() {
             )}
           </div>
         )}
+
+        <AlertPanel domainId={domainId} />
 
         <div>
           <div className="mb-2 flex items-center justify-between px-1">

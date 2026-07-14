@@ -8,13 +8,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
+from api.alerts import router as alerts_router
 from core.auth import ApiKeyMiddleware, auth_enabled
 from core.schema_rag import is_schema_rag_enabled
 
 app = FastAPI(
     title="Multi-domain Conversational BI",
     description="Text-to-SQL cục bộ với Ollama — hỗ trợ SQLite/PostgreSQL + RAG Schema.",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 _cors_origins = [
@@ -36,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(alerts_router)
 
 
 @app.get("/health")
