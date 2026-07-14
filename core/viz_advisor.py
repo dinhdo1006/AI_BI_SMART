@@ -29,7 +29,8 @@ _CHART_PATTERNS: list[tuple[ChartType, re.Pattern[str]]] = [
         "line",
         re.compile(
             r"(biểu\s*đồ|bieu\s*do).{0,30}(đường|duong|line)|"
-            r"line\s*chart|xu\s*hướng|xu\s*huong|theo\s*(thời\s*gian|thoi\s*gian|ngày|ngay)|trend",
+            r"line\s*chart|xu\s*hướng|xu\s*huong|theo\s*(thời\s*gian|thoi\s*gian|ngày|ngay)|"
+            r"trend|dự\s*báo|du\s*bao|forecast",
             re.IGNORECASE,
         ),
     ),

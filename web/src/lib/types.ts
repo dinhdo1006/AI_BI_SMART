@@ -26,6 +26,28 @@ export type PeriodComparison = {
   direction: "up" | "down" | "flat" | string;
 };
 
+export type ForecastPoint = {
+  date: string;
+  value: number;
+};
+
+export type Forecast = {
+  metric: string;
+  metric_label?: string;
+  date_col?: string;
+  date_col_label?: string;
+  method?: string;
+  lookback_points?: number;
+  horizon: number;
+  direction: "up" | "down" | "flat" | string;
+  slope?: number;
+  history_end_date?: string;
+  history_end_value?: number;
+  pct_change_to_horizon?: number | null;
+  points: ForecastPoint[];
+  disclaimer?: string;
+};
+
 export type ChatResponse = {
   status: ResponseStatus;
   domain_id: string;
@@ -47,6 +69,8 @@ export type ChatResponse = {
   data_as_of?: string | null;
   /** So sánh kỳ MoM/QoQ/YoY */
   period_comparison?: PeriodComparison | null;
+  /** Dự báo tuyến tính ngắn hạn */
+  forecast?: Forecast | null;
   error?: string;
 };
 
@@ -71,6 +95,8 @@ export type DashboardReport = {
   column_labels?: Record<string, string>;
   chart_image_base64?: string;
   article_markdown?: string;
+  period_comparison?: PeriodComparison | null;
+  forecast?: Forecast | null;
 };
 
 export type DashboardPayload = {

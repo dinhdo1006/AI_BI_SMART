@@ -338,6 +338,13 @@ def _rename_stats_keys(stats: dict[str, Any], labels: dict[str, str]) -> dict[st
         if "date_col" in pc:
             pc["date_col"] = labels.get(str(pc["date_col"]), pc["date_col"])
         out["period_comparison"] = pc
+    if "forecast" in out:
+        fc = dict(out["forecast"])
+        if "metric" in fc:
+            fc["metric"] = labels.get(str(fc["metric"]), fc["metric"])
+        if "date_col" in fc:
+            fc["date_col"] = labels.get(str(fc["date_col"]), fc["date_col"])
+        out["forecast"] = fc
     if "correlation" in out:
         corr = dict(out["correlation"])
         for key in ("metric_a", "metric_b"):
@@ -412,8 +419,9 @@ Bắt đầu NGAY bằng dòng **Tóm tắt:** — không thêm tiêu đề hay 
   nêu tên đối tượng và con số; so sánh với trung bình hoặc median khi có trong THỐNG KÊ.
 
 - **Xu hướng & biến động:** 2–4 câu — nếu có date_range thì mô tả diễn biến theo thời gian;
-  nếu không có cột ngày thì ghi rõ "Không đủ dữ liệu thời gian để đánh giá xu hướng"
-  và phân tích phân bố/chênh lệch thay thế.
+  nếu có forecast thì nêu hướng + giá trị dự báo ngắn hạn và nhắc đây là ước lượng tuyến tính
+  (không phải cam kết chính thức); nếu không có cột ngày thì ghi rõ "Không đủ dữ liệu thời gian
+  để đánh giá xu hướng" và phân tích phân bố/chênh lệch thay thế.
 
 - **Phát hiện bất thường:** 2–3 bullet — giá trị lệch xa trung bình, khoảng cách min–max lớn,
   nhóm chiếm tỷ trọng bất thường (chỉ dựa trên số có sẵn).

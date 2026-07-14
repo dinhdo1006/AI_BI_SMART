@@ -6,7 +6,7 @@ import type { EChartsType } from "echarts/core";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { Download } from "lucide-react";
-import type { ChartType } from "@/lib/types";
+import type { ChartType, Forecast } from "@/lib/types";
 import { formatNumber, friendlyLabel } from "@/lib/format";
 import {
   detectOhlcColumns,
@@ -42,11 +42,13 @@ export function DataChart({
   data,
   chartType,
   labels,
+  forecast,
   onReady,
 }: {
   data: Record<string, unknown>[];
   chartType: ChartType;
   labels?: Record<string, string>;
+  forecast?: Forecast | null;
   onReady?: (getPng: () => string | null) => void;
 }) {
   const chartRef = useRef<EChartsType | null>(null);
@@ -80,6 +82,11 @@ export function DataChart({
     !axes.isTimeSeries &&
     shouldUseHorizontalBar(data, x);
 
+  const canShowForecast =
+    !!forecast?.points?.length &&
+    axes.isTimeSeries &&
+    (effectiveType === "line" || effectiveType === "area");
+
   const option = useMemo(() => {
     if (effectiveType === "candlestick" && ohlc) {
       return buildCandlestickOption(data, ohlc);
@@ -92,6 +99,7 @@ export function DataChart({
       labels,
       horizontal,
       xLabel: friendlyLabel(x, labels),
+      forecast: canShowForecast ? forecast : null,
     });
   }, [
     effectiveType,
@@ -102,6 +110,8 @@ export function DataChart({
     x,
     ohlc,
     data,
+    canShowForecast,
+    forecast,
   ]);
 
   const getPngBase64 = useCallback(() => {
@@ -283,6 +293,7 @@ function buildOption({
   labels,
   horizontal,
   xLabel,
+  forecast,
 }: {
   type: ChartType;
   chartData: Record<string, unknown>[];
@@ -290,8 +301,23 @@ function buildOption({
   labels?: Record<string, string>;
   horizontal: boolean;
   xLabel: string;
+  forecast?: Forecast | null;
 }): EChartsOption {
-  const categories = chartData.map((d) => String(d.name ?? ""));
+  const forecastPts = forecast?.points || [];
+  const forecastMetric = forecast?.metric;
+  const useForecast =
+    !horizontal &&
+    forecastPts.length > 0 &&
+    !!forecastMetric &&
+    yCols.includes(forecastMetric) &&
+    (type === "line" || type === "area");
+
+  const categories = [
+    ...chartData.map((d) => String(d.name ?? "")),
+    ...(useForecast
+      ? forecastPts.map((p) => formatAxisLabel(p.date, forecast?.date_col || "date"))
+      : []),
+  ];
   const showLabels = chartData.length <= 10;
   const tip = sharedTooltip(labels);
 
@@ -376,6 +402,7 @@ function buildOption({
     horizontal,
     showLabels,
     isCombo,
+    forecast: useForecast ? forecast : null,
   });
 
   if (horizontal) {
@@ -482,6 +509,7 @@ function buildSeries({
   horizontal,
   showLabels,
   isCombo,
+  forecast,
 }: {
   kind: ChartType | "combo";
   chartData: Record<string, unknown>[];
@@ -490,7 +518,14 @@ function buildSeries({
   horizontal: boolean;
   showLabels: boolean;
   isCombo: boolean;
+  forecast?: Forecast | null;
 }): SeriesOption[] {
+  const fcPts = forecast?.points || [];
+  const fcMetric = forecast?.metric;
+  const padNulls = (n: number) => Array.from({ length: n }, () => null as null);
+  const histLen = chartData.length;
+  const fcLen = fcPts.length;
+
   if (isCombo) {
     const barCol = yCols[0];
     const lineCol = yCols[1];
@@ -552,12 +587,17 @@ function buildSeries({
   }
 
   if (kind === "line" || kind === "area") {
-    return yCols.map((y, i) => {
+    const series: SeriesOption[] = yCols.map((y, i) => {
       const color = COLORS[i % COLORS.length];
+      const hist = chartData.map((d) => d[y] as number | null);
+      const dataVals =
+        fcMetric && y === fcMetric && fcLen
+          ? [...hist, ...padNulls(fcLen)]
+          : hist;
       return {
         name: friendlyLabel(y, labels),
         type: "line" as const,
-        data: chartData.map((d) => d[y] as number | null),
+        data: dataVals,
         smooth: true,
         symbol: "circle",
         symbolSize: 6,
@@ -593,6 +633,30 @@ function buildSeries({
           : undefined,
       };
     });
+
+    if (fcMetric && yCols.includes(fcMetric) && fcLen) {
+      const lastHist = Number(chartData[histLen - 1]?.[fcMetric]);
+      const bridge = Number.isFinite(lastHist) ? lastHist : null;
+      const color = "#b45309";
+      series.push({
+        name: "Dự báo",
+        type: "line",
+        data: [
+          ...padNulls(Math.max(0, histLen - 1)),
+          bridge,
+          ...fcPts.map((p) => p.value),
+        ],
+        smooth: false,
+        symbol: "diamond",
+        symbolSize: 7,
+        showSymbol: true,
+        lineStyle: { width: 2.2, type: "dashed", color },
+        itemStyle: { color },
+        z: 5,
+      });
+    }
+
+    return series;
   }
 
   // bar (default)

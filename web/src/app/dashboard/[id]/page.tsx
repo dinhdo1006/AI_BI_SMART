@@ -79,7 +79,12 @@ export default function DashboardPage() {
               )}
               {r.data?.length > 0 && (
                 <div className="mt-4 space-y-4">
-                  <KpiRow data={r.data} labels={labels} />
+                  <KpiRow
+                    data={r.data}
+                    labels={labels}
+                    period={r.period_comparison}
+                    forecast={r.forecast}
+                  />
                   <div className="grid gap-4 xl:grid-cols-[0.95fr_1.15fr]">
                     <DataTable data={renamed} />
                     {r.chart_type !== "table" && (
@@ -87,6 +92,7 @@ export default function DashboardPage() {
                         data={r.data}
                         chartType={r.chart_type}
                         labels={labels}
+                        forecast={r.forecast}
                       />
                     )}
                   </div>

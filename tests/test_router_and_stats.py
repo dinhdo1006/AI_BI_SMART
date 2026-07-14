@@ -42,6 +42,35 @@ def test_stats_trend_and_period() -> None:
     assert "period_comparison" in stats
 
 
+def test_stats_forecast_linear() -> None:
+    rows = [
+        {"ngay_gd": "2024-01-01", "gia": 10.0},
+        {"ngay_gd": "2024-02-01", "gia": 12.0},
+        {"ngay_gd": "2024-03-01", "gia": 14.0},
+        {"ngay_gd": "2024-04-01", "gia": 16.0},
+        {"ngay_gd": "2024-05-01", "gia": 18.0},
+        {"ngay_gd": "2024-06-01", "gia": 20.0},
+    ]
+    stats = compute_insight_stats(rows)
+    fc = stats.get("forecast")
+    assert fc is not None
+    assert fc["direction"] == "up"
+    assert fc["horizon"] == 3
+    assert len(fc["points"]) == 3
+    assert fc["points"][0]["value"] < fc["points"][-1]["value"]
+    assert fc["points"][0]["date"] > "2024-06-01"
+
+
+def test_stats_forecast_missing_without_dates() -> None:
+    rows = [
+        {"ma_cp": "VCB", "gia": 100.0},
+        {"ma_cp": "FPT", "gia": 90.0},
+        {"ma_cp": "HPG", "gia": 80.0},
+    ]
+    stats = compute_insight_stats(rows)
+    assert "forecast" not in stats
+
+
 def test_stats_outlier_and_correlation() -> None:
     rows = [
         {"ten": "A", "x": 10.0, "y": 20.0},

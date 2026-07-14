@@ -161,6 +161,89 @@ def _compute_trend(
     }
 
 
+def _compute_forecast(
+    df: pd.DataFrame,
+    numeric: list[str],
+    date_col: str | None,
+    *,
+    lookback: int = 12,
+    horizon: int = 3,
+) -> dict[str, Any] | None:
+    """
+    Dự báo ngắn hạn bằng hồi quy tuyến tính trên N điểm gần nhất.
+
+    Extrapolate horizon điểm tiếp theo theo khoảng thời gian trung vị (Δt).
+    """
+    if not numeric or date_col is None or len(df) < 3:
+        return None
+    metric = numeric[0]
+    work = df[[date_col, metric]].copy()
+    work["_dt"] = _parse_dates(work[date_col])
+    work["_m"] = pd.to_numeric(work[metric], errors="coerce")
+    work = work.dropna(subset=["_dt", "_m"]).sort_values("_dt")
+    if len(work) < 3:
+        return None
+
+    n_take = min(max(lookback, 3), len(work))
+    recent = work.tail(n_take).reset_index(drop=True)
+    x = np.arange(len(recent), dtype=float)
+    y = recent["_m"].to_numpy(dtype=float)
+    slope, intercept = (float(v) for v in np.polyfit(x, y, 1))
+
+    y_mean = float(np.mean(np.abs(y))) or 1.0
+    rel_slope = slope / y_mean
+    if rel_slope > 0.02:
+        direction = "up"
+    elif rel_slope < -0.02:
+        direction = "down"
+    else:
+        direction = "flat"
+
+    deltas = recent["_dt"].diff().dt.total_seconds().dropna()
+    if deltas.empty:
+        step = pd.Timedelta(days=1)
+    else:
+        median_sec = float(deltas.median())
+        if not np.isfinite(median_sec) or median_sec <= 0:
+            step = pd.Timedelta(days=1)
+        else:
+            step = pd.Timedelta(seconds=median_sec)
+
+    last_dt = recent["_dt"].iloc[-1]
+    last_val = float(y[-1])
+    n = len(recent)
+    points: list[dict[str, Any]] = []
+    for i in range(1, horizon + 1):
+        pred = intercept + slope * (n - 1 + i)
+        points.append(
+            {
+                "date": str((last_dt + step * i).date()),
+                "value": round(float(pred), 4),
+            }
+        )
+
+    end_forecast = float(points[-1]["value"])
+    pct_change = None
+    if abs(last_val) > 1e-12:
+        pct_change = round((end_forecast - last_val) / abs(last_val) * 100.0, 2)
+
+    return {
+        "metric": metric,
+        "date_col": date_col,
+        "method": "linear_regression",
+        "lookback_points": int(n_take),
+        "horizon": horizon,
+        "direction": direction,
+        "slope": round(slope, 6),
+        "relative_slope": round(rel_slope, 6),
+        "history_end_date": str(last_dt.date()),
+        "history_end_value": round(last_val, 4),
+        "pct_change_to_horizon": pct_change,
+        "points": points,
+        "disclaimer": "Ước lượng tuyến tính ngắn hạn — không phải dự báo chính thức.",
+    }
+
+
 def _compute_top_bottom(
     df: pd.DataFrame,
     numeric: list[str],
@@ -319,7 +402,8 @@ def compute_insight_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     Returns:
         Dict JSON-friendly: row_count, numeric, top categories, date range,
-        outliers (z-score), trend, top_bottom, period_comparison, correlation.
+        outliers (z-score), trend, forecast, top_bottom, period_comparison,
+        correlation.
     """
     if not rows:
         return {"row_count": 0}
@@ -411,6 +495,10 @@ def compute_insight_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     trend = _compute_trend(df, numeric, date_col)
     if trend:
         stats["trend"] = trend
+
+    forecast = _compute_forecast(df, numeric, date_col)
+    if forecast:
+        stats["forecast"] = forecast
 
     top_bottom = _compute_top_bottom(df, numeric, text_cols)
     if top_bottom:

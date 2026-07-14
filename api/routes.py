@@ -85,6 +85,23 @@ def _label_period(
     return out
 
 
+def _label_forecast(
+    forecast: dict[str, Any] | None,
+    labels: dict[str, str],
+) -> dict[str, Any] | None:
+    """Giữ metric/date_col gốc (khớp cột data); thêm nhãn hiển thị."""
+    if not forecast:
+        return None
+    out = dict(forecast)
+    metric = out.get("metric")
+    date_col = out.get("date_col")
+    if metric is not None:
+        out["metric_label"] = labels.get(str(metric), metric)
+    if date_col is not None:
+        out["date_col_label"] = labels.get(str(date_col), date_col)
+    return out
+
+
 def _infer_data_as_of(rows: list[dict[str, Any]]) -> str | None:
     """Lấy ngày mới nhất trong kết quả (YYYY-MM-DD). Không có cột ngày → None."""
     if not rows:
@@ -179,6 +196,8 @@ class ChatResponse(BaseModel):
     data_as_of: str | None = None
     # So sánh kỳ (MoM/QoQ/YoY) — đã tính từ data, dùng badge KPI
     period_comparison: dict[str, Any] | None = None
+    # Dự báo tuyến tính ngắn hạn (line/area overlay)
+    forecast: dict[str, Any] | None = None
 
 
 class ArticleRequest(BaseModel):
@@ -881,6 +900,7 @@ def chat(
     # Bước 4: Insight + period comparison (chỉ khi có dữ liệu)
     stats = compute_insight_stats(rows)
     period = _label_period(stats.get("period_comparison"), labels)
+    forecast = _label_forecast(stats.get("forecast"), labels)
 
     try:
         t_llm = time.perf_counter()
@@ -917,6 +937,7 @@ def chat(
         sql_source=sql_source,
         data_as_of=_infer_data_as_of(rows),
         period_comparison=period,
+        forecast=forecast,
     )
     set_cached_response(
         request.domain_id, request.query, resp.model_dump(mode="json")

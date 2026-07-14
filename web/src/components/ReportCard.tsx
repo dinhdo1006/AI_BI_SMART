@@ -249,6 +249,8 @@ export function ReportCard({
             column_labels: labels,
             chart_image_base64: chartImage,
             article_markdown: msg?.article?.article_markdown,
+            period_comparison: payload.period_comparison,
+            forecast: payload.forecast,
           },
         ],
       });
@@ -371,6 +373,7 @@ export function ReportCard({
             data={payload.data}
             labels={labels}
             period={payload.period_comparison}
+            forecast={payload.forecast}
           />
         )}
 
@@ -389,6 +392,7 @@ export function ReportCard({
                 data={payload.data}
                 chartType={chartType}
                 labels={labels}
+                forecast={payload.forecast}
                 onReady={onChartReady}
               />
             )}

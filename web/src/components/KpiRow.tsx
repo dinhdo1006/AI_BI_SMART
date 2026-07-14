@@ -1,7 +1,7 @@
 "use client";
 
 import { formatNumber, friendlyLabel } from "@/lib/format";
-import type { PeriodComparison } from "@/lib/types";
+import type { Forecast, PeriodComparison } from "@/lib/types";
 import { analyzeColumns, metricScore } from "@/lib/viz";
 import { cn } from "@/lib/utils";
 
@@ -24,10 +24,12 @@ export function KpiRow({
   data,
   labels,
   period,
+  forecast,
 }: {
   data: Record<string, unknown>[];
   labels?: Record<string, string>;
   period?: PeriodComparison | null;
+  forecast?: Forecast | null;
 }) {
   if (!data.length) return null;
   const { numeric } = analyzeColumns(data);
@@ -43,6 +45,17 @@ export function KpiRow({
     ? Object.entries(labels || {}).find(([, v]) => v === period.metric)?.[0] ||
       period.metric
     : null;
+
+  const forecastPct = formatPct(forecast?.pct_change_to_horizon);
+  const forecastUp = forecast?.direction === "up";
+  const forecastDown = forecast?.direction === "down";
+  const forecastLabel =
+    forecast?.metric_label ||
+    (forecast?.metric ? friendlyLabel(forecast.metric, labels) : "");
+  const lastForecast =
+    forecast?.points?.length
+      ? forecast.points[forecast.points.length - 1]
+      : null;
 
   const items = cols.map((col) => {
     const vals = data
@@ -110,6 +123,31 @@ export function KpiRow({
           <span className="text-[12px] opacity-80">
             {friendlyLabel(String(period.metric), labels)} ·{" "}
             {period.previous_period} → {period.current_period}
+          </span>
+        </div>
+      )}
+      {forecast && lastForecast && (
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm",
+            forecastUp
+              ? "border-teal/25 bg-teal/8 text-teal"
+              : forecastDown
+                ? "border-copper/30 bg-copper-soft/40 text-copper"
+                : "border-line bg-mist/60 text-ink-soft",
+          )}
+        >
+          <span className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
+            Dự báo {forecast.horizon} kỳ
+          </span>
+          {forecastPct && <span className="font-semibold">{forecastPct}</span>}
+          <span className="text-[12px] opacity-80">
+            {forecastLabel}
+            {forecast.history_end_date
+              ? ` · ${forecast.history_end_date} → ${lastForecast.date}`
+              : ""}
+            {" · "}
+            ước lượng tuyến tính
           </span>
         </div>
       )}
