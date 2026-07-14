@@ -214,6 +214,40 @@ export type AlertSchedulerStatus = {
   thread_alive?: boolean;
 };
 
+export type AutoArticle = {
+  id: string;
+  template_id: string;
+  template_name: string;
+  data_date: string;
+  domain_id: string;
+  question: string;
+  trigger: string;
+  article_markdown: string;
+  word_count: number;
+  generated_at: string;
+  created_at?: string;
+  outline?: Record<string, unknown>;
+};
+
+export type AutoArticleSchedulerStatus = {
+  enabled: boolean;
+  interval_minutes: number;
+  running: boolean;
+  daily_enabled?: boolean;
+  weekly_enabled?: boolean;
+  daily_time?: string;
+  weekly_time?: string;
+  last_run_at?: string | null;
+  last_result?: {
+    checked: number;
+    ok_count: number;
+    skipped_count: number;
+    error_count: number;
+  } | null;
+  last_error?: string | null;
+  thread_alive?: boolean;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";

@@ -6,6 +6,8 @@ import type {
   AlertRunResult,
   AlertSchedulerStatus,
   ArticleResponse,
+  AutoArticle,
+  AutoArticleSchedulerStatus,
   ChatResponse,
   DashboardPayload,
   DomainExplore,
@@ -507,4 +509,84 @@ export async function fetchAlertEvents(
   if (!res.ok) return [];
   const data = await res.json();
   return (data.events || []) as AlertEvent[];
+}
+
+export async function fetchAutoArticles(
+  domainId?: string,
+  limit = 20,
+): Promise<AutoArticle[]> {
+  const q = new URLSearchParams();
+  if (domainId) q.set("domain_id", domainId);
+  q.set("limit", String(limit));
+  try {
+    const res = await fetch(apiUrl(`/api/v1/auto_articles?${q}`), {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.articles || []) as AutoArticle[];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchAutoArticle(
+  articleId: string,
+): Promise<AutoArticle | null> {
+  try {
+    const res = await fetch(
+      apiUrl(`/api/v1/auto_articles/${encodeURIComponent(articleId)}`),
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as AutoArticle;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchAutoArticleScheduler(): Promise<AutoArticleSchedulerStatus | null> {
+  try {
+    const res = await fetch(apiUrl("/api/v1/auto_articles/scheduler"), {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AutoArticleSchedulerStatus;
+  } catch {
+    return null;
+  }
+}
+
+export async function runAutoArticleChecks(): Promise<{
+  checked: number;
+  ok_count: number;
+  skipped_count: number;
+  error_count: number;
+  jobs?: Array<Record<string, unknown>>;
+}> {
+  const res = await fetch(apiUrl("/api/v1/auto_articles/run_checks"), {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return await res.json();
+}
+
+export async function runAutoArticleJob(params: {
+  templateId: string;
+  dataDate: string;
+  domainId?: string;
+  force?: boolean;
+}): Promise<{ status: string; article?: AutoArticle; message?: string }> {
+  const res = await fetch(apiUrl("/api/v1/auto_articles/run"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      template_id: params.templateId,
+      data_date: params.dataDate,
+      domain_id: params.domainId || "finance_vnfdata",
+      force: params.force ?? false,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return await res.json();
 }

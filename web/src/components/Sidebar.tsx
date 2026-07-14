@@ -23,6 +23,7 @@ import type { DomainExplore, DomainsHealth } from "@/lib/types";
 import { useChatStore, type ChatSession } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { AlertPanel } from "@/components/AlertPanel";
+import { AutoArticlePanel } from "@/components/AutoArticlePanel";
 
 export function Sidebar() {
   const domains = useChatStore((s) => s.domains);
@@ -161,6 +162,7 @@ export function Sidebar() {
         )}
 
         <AlertPanel domainId={domainId} />
+        <AutoArticlePanel domainId={domainId} />
 
         <div>
           <div className="mb-2 flex items-center justify-between px-1">
