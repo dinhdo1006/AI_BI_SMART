@@ -199,8 +199,10 @@ export async function postArticle(params: {
       error:
         detail ||
         (res.status === 502 || res.status === 504
-          ? "Ollama timeout hoặc chưa chạy — kiểm tra model qwen2.5"
-          : `HTTP ${res.status} ${res.statusText}`),
+          ? "Ollama timeout hoặc chưa chạy — kiểm tra model (INSIGHT_MODEL, vd. qwen2.5:3b)"
+          : res.status === 500
+            ? "Proxy/server lỗi khi viết bài (thường do timeout). Thử lại hoặc restart Next.js sau khi cập nhật."
+            : `HTTP ${res.status} ${res.statusText}`),
     };
   }
   return (await res.json()) as ArticleResponse;

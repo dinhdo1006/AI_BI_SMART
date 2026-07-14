@@ -8,6 +8,12 @@ const BACKEND_URL = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  // Rewrite proxy mặc định ~30–60s — tăng để LLM dài (Ollama) không bị 500.
+  // generate_article còn có Route Handler riêng (timeout 5 phút) ưu tiên hơn rewrite.
+  experimental: {
+    // Unsupported in public types on some Next versions; still read at runtime.
+    proxyTimeout: 300_000,
+  } as NextConfig["experimental"],
   async rewrites() {
     return [
       {

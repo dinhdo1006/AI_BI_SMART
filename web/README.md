@@ -33,6 +33,10 @@ npm run start
 
 Mở http://10.10.6.134:3010 (hoặc IP máy bạn).
 
+> **Viết bài báo:** endpoint `/api/v1/generate_article` đi qua Route Handler
+> riêng (timeout 5 phút). Sau khi pull code mới cần **restart Next.js**
+> (`npm run build && npm run start` hoặc `npm run dev`).
+
 ## Cấu hình tùy chọn
 
 | Biến | File | Ý nghĩa |

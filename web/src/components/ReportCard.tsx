@@ -179,6 +179,20 @@ export function ReportCard({
         article.chart_preview_base64 = chartImage;
       }
       updateMessage(messageId, { article });
+    } catch (err) {
+      updateMessage(messageId, {
+        article: {
+          article_markdown: "",
+          outline: {},
+          word_count: 0,
+          domain_id: domainId,
+          question: payload.query,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Lỗi mạng khi gọi API viết bài",
+        },
+      });
     } finally {
       setWriting(false);
     }
