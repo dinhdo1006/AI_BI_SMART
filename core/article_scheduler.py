@@ -55,6 +55,8 @@ def _parse_hhmm(raw: str, fallback: str) -> tuple[int, int]:
 
 
 def get_scheduler_status() -> dict[str, Any]:
+    from core.article_notify import get_notify_status
+
     return {
         "enabled": bool(_state["enabled"]),
         "interval_minutes": int(_state["interval_minutes"]),
@@ -68,6 +70,7 @@ def get_scheduler_status() -> dict[str, Any]:
         "last_result": _state["last_result"],
         "last_error": _state["last_error"],
         "thread_alive": bool(_thread and _thread.is_alive()),
+        "notify": get_notify_status(),
     }
 
 

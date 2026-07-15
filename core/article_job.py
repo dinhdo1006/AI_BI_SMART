@@ -7,6 +7,7 @@ import logging
 from datetime import date, datetime
 from typing import Any
 
+from core.article_sql import get_sql_for_template
 from core.article_store import has_article, save_article
 from core.article_templates import get_template
 from core.config_loader import load_domain_config
@@ -29,128 +30,6 @@ def make_intraday_data_date(trade_date: str, when: datetime | None = None) -> st
     n = when or datetime.now()
     base = (trade_date or "").strip()[:10] or n.strftime("%Y-%m-%d")
     return f"{base}T{n.strftime('%H')}"
-
-# SQL đã duyệt theo loại template (PostgreSQL VNFDATA)
-_SQL_BY_TEMPLATE: dict[str, str] = {
-    "market_01": """
-SELECT c.ticker,
-       sp.trade_date,
-       sp.close_price,
-       sp.change_percent,
-       sp.volume,
-       sp.value
-FROM stock_prices sp
-JOIN companies c ON c.id = sp.company_id
-WHERE sp.trade_date = (
-    SELECT MAX(trade_date) FROM stock_prices
-)
-ORDER BY sp.value DESC NULLS LAST
-LIMIT 80
-""".strip(),
-    "market_02": """
-SELECT c.ticker,
-       sp.trade_date,
-       sp.close_price,
-       sp.change_percent,
-       sp.volume,
-       sp.value
-FROM stock_prices sp
-JOIN companies c ON c.id = sp.company_id
-WHERE sp.trade_date = (SELECT MAX(trade_date) FROM stock_prices)
-  AND sp.change_percent IS NOT NULL
-ORDER BY sp.change_percent DESC
-LIMIT 15
-""".strip(),
-    "market_03": """
-SELECT c.ticker,
-       sp.trade_date,
-       sp.close_price,
-       sp.change_percent,
-       sp.volume,
-       sp.value
-FROM stock_prices sp
-JOIN companies c ON c.id = sp.company_id
-WHERE sp.trade_date = (SELECT MAX(trade_date) FROM stock_prices)
-  AND sp.change_percent IS NOT NULL
-ORDER BY sp.change_percent ASC
-LIMIT 15
-""".strip(),
-    "market_04": """
-SELECT c.ticker,
-       sp.trade_date,
-       sp.close_price,
-       sp.change_percent,
-       sp.volume,
-       sp.value
-FROM stock_prices sp
-JOIN companies c ON c.id = sp.company_id
-WHERE sp.trade_date = (SELECT MAX(trade_date) FROM stock_prices)
-ORDER BY sp.value DESC NULLS LAST
-LIMIT 15
-""".strip(),
-    "market_05": """
-SELECT fi.symbol AS ticker,
-       fi.calc_date,
-       fi.market_cap,
-       fi.pe_ratio,
-       fi.pb_ratio
-FROM financial_indicators fi
-WHERE fi.calc_date = (SELECT MAX(calc_date) FROM financial_indicators)
-  AND fi.market_cap IS NOT NULL
-ORDER BY fi.market_cap DESC
-LIMIT 15
-""".strip(),
-    "market_09": """
-SELECT c.ticker,
-       ft.trade_date,
-       ft.buy_volume,
-       ft.sell_volume,
-       ft.net_volume
-FROM foreign_trades ft
-JOIN companies c ON c.id = ft.company_id
-WHERE ft.trade_date = (SELECT MAX(trade_date) FROM foreign_trades)
-ORDER BY ABS(COALESCE(ft.net_volume, 0)) DESC
-LIMIT 30
-""".strip(),
-    "market_14": """
-SELECT c.ticker,
-       sp.trade_date,
-       sp.close_price,
-       sp.change_percent,
-       sp.volume,
-       sp.value
-FROM stock_prices sp
-JOIN companies c ON c.id = sp.company_id
-WHERE sp.trade_date >= (
-    SELECT MAX(trade_date) - INTERVAL '30 days' FROM stock_prices
-)
-ORDER BY sp.trade_date DESC, sp.value DESC NULLS LAST
-LIMIT 120
-""".strip(),
-    "company_01": """
-SELECT c.ticker,
-       c.company_name,
-       fs.fiscal_year,
-       fs.fiscal_quarter,
-       fs.report_type,
-       fs.net_revenue,
-       fs.net_income,
-       fs.gross_profit,
-       fs.total_assets,
-       fs.equity,
-       fs.operating_cash_flow
-FROM financial_statements fs
-JOIN companies c ON c.id = fs.company_id
-WHERE fs.fiscal_year = (
-    SELECT MAX(fiscal_year) FROM financial_statements
-)
-ORDER BY fs.net_income DESC NULLS LAST
-LIMIT 40
-""".strip(),
-}
-
-_FALLBACK_MARKET_SQL = _SQL_BY_TEMPLATE["market_01"]
-_FALLBACK_COMPANY_SQL = _SQL_BY_TEMPLATE["company_01"]
 
 
 def _db_url(domain_id: str) -> str:
@@ -275,12 +154,13 @@ GROUP BY l.fiscal_year, l.fiscal_quarter
 
 def build_sql_for_template(template_id: str) -> str:
     tid = (template_id or "").strip()
-    if tid in _SQL_BY_TEMPLATE:
-        return _SQL_BY_TEMPLATE[tid]
+    sql = get_sql_for_template(tid)
+    if sql:
+        return sql
     tpl = get_template(tid)
     if tpl and str(tpl.get("category") or "") == "company":
-        return _FALLBACK_COMPANY_SQL
-    return _FALLBACK_MARKET_SQL
+        return get_sql_for_template("company_01") or ""
+    return get_sql_for_template("market_01") or ""
 
 
 def default_question(template: dict[str, Any], data_date: str) -> str:
@@ -392,10 +272,14 @@ def run_article_job(
             "data_date": dd,
         }
 
+    from core.article_notify import notify_article
+
+    notify = notify_article(saved, trigger=trigger)
     return {
         "status": "ok",
         "article": saved,
         "template_id": tid,
         "data_date": dd,
         "word_count": saved.get("word_count"),
+        "notify": notify,
     }

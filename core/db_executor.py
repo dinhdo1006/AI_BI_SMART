@@ -24,9 +24,9 @@ _FORBIDDEN_KEYWORDS: re.Pattern[str] = re.compile(
     re.IGNORECASE,
 )
 
-# SQL phải bắt đầu bằng SELECT (cho phép khoảng trắng / comment đơn giản phía trước)
+# SQL phải bắt đầu bằng SELECT hoặc WITH … SELECT (CTE read-only)
 _SELECT_START: re.Pattern[str] = re.compile(
-    r"^\s*(?:--[^\n]*\n\s*)*SELECT\b",
+    r"^\s*(?:--[^\n]*\n\s*)*(?:WITH\b|SELECT\b)",
     re.IGNORECASE,
 )
 

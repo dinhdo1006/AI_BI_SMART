@@ -576,7 +576,19 @@ export async function runAutoArticleJob(params: {
   dataDate: string;
   domainId?: string;
   force?: boolean;
-}): Promise<{ status: string; article?: AutoArticle; message?: string }> {
+}): Promise<{
+  status: string;
+  article?: AutoArticle;
+  message?: string;
+  notify?: {
+    enabled?: boolean;
+    skipped?: boolean;
+    reason?: string;
+    ok_count?: number;
+    error_count?: number;
+    results?: Array<{ channel: string; status: string; message?: string }>;
+  };
+}> {
   const res = await fetch(apiUrl("/api/v1/auto_articles/run"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },

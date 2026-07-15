@@ -143,7 +143,9 @@
       "trade_date": "Ngày",
       "buy_volume": "KL mua",
       "sell_volume": "KL bán",
-      "net_volume": "KL ròng"
+      "buy_value": "GT mua",
+      "sell_value": "GT bán",
+      "net_value": "GT ròng (mua - bán)"
     }
   },
   "column_labels": {

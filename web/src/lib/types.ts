@@ -229,6 +229,12 @@ export type AutoArticle = {
   outline?: Record<string, unknown>;
 };
 
+export type AutoArticleNotifyStatus = {
+  enabled: boolean;
+  channels: string[];
+  triggers?: string[] | null;
+};
+
 export type AutoArticleSchedulerStatus = {
   enabled: boolean;
   interval_minutes: number;
@@ -248,6 +254,7 @@ export type AutoArticleSchedulerStatus = {
   } | null;
   last_error?: string | null;
   thread_alive?: boolean;
+  notify?: AutoArticleNotifyStatus;
 };
 
 export type ChatMessage = {

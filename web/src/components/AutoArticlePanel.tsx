@@ -83,9 +83,16 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
         domainId,
         force: true,
       });
+      const n = result.notify;
+      const notifyNote =
+        result.status === "ok" && n && !n.skipped
+          ? ` · gửi ${n.ok_count ?? 0} kênh${
+              (n.error_count ?? 0) > 0 ? ` (${n.error_count} lỗi)` : ""
+            }`
+          : "";
       setNote(
         result.status === "ok"
-          ? `Đã viết bài ${result.article?.template_name || "market_01"}`
+          ? `Đã viết bài ${result.article?.template_name || "market_01"}${notifyNote}`
           : result.message || result.status,
       );
       await reload();
@@ -149,6 +156,9 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
                       : ""
                   }`
                 : "Scheduler tắt — chỉ chạy tay"}
+              {scheduler.notify?.enabled
+                ? ` · notify: ${(scheduler.notify.channels || []).join(", ") || "chưa cấu hình kênh"}`
+                : " · notify tắt"}
               {scheduler.last_run_at
                 ? ` · gần nhất ${new Date(scheduler.last_run_at).toLocaleTimeString("vi-VN")}`
                 : ""}

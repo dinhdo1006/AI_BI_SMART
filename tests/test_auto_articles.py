@@ -100,10 +100,25 @@ def test_intraday_data_date_and_fingerprint() -> None:
 
 def test_build_sql_known_templates() -> None:
     sql = build_sql_for_template("market_01")
-    assert "stock_prices" in sql
+    assert "index_snapshots" in sql or "stock_prices" in sql
     assert "SELECT" in sql.upper()
     sql2 = build_sql_for_template("company_01")
     assert "financial_statements" in sql2
+
+
+def test_sql_catalog_covers_all_templates() -> None:
+    from core.article_sql import sql_catalog_ids
+    from core.article_templates import list_templates
+
+    tpl_ids = {t["id"] for t in list_templates()}
+    sql_ids = set(sql_catalog_ids())
+    assert len(sql_ids) == 35
+    assert tpl_ids == sql_ids
+    # vài template đặc thù phải trỏ đúng bảng
+    assert "proprietary_trades" in build_sql_for_template("market_10")
+    assert "sector_performance" in build_sql_for_template("market_13")
+    assert "cash_and_cash_equivalents" in build_sql_for_template("company_14")
+    assert "inventory" in build_sql_for_template("company_15")
 
 
 def test_default_question() -> None:
@@ -131,3 +146,84 @@ def test_article_scheduler_disabled_by_default(monkeypatch) -> None:
     assert status["enabled"] is False
     assert get_scheduler_status()["enabled"] is False
     stop_scheduler()
+
+
+def test_notify_disabled_skips(monkeypatch) -> None:
+    from core.article_notify import notify_article
+
+    monkeypatch.delenv("ARTICLE_NOTIFY_ENABLED", raising=False)
+    out = notify_article(
+        {
+            "id": "x",
+            "template_name": "Test",
+            "data_date": "2026-07-14",
+            "trigger": "manual",
+            "article_markdown": "# Hi",
+            "word_count": 1,
+            "generated_at": "2026-07-14 15:00",
+        },
+        trigger="manual",
+    )
+    assert out["skipped"] is True
+
+
+def test_notify_slack_when_enabled(monkeypatch) -> None:
+    from core import article_notify as notify
+
+    monkeypatch.setenv("ARTICLE_NOTIFY_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARTICLE_NOTIFY_SLACK_WEBHOOK", "https://hooks.slack.test/abc"
+    )
+    monkeypatch.delenv("ARTICLE_NOTIFY_SMTP_HOST", raising=False)
+    monkeypatch.delenv("ARTICLE_NOTIFY_TELEGRAM_BOT_TOKEN", raising=False)
+
+    class _Resp:
+        status_code = 200
+        text = "ok"
+
+    calls: list[dict] = []
+
+    def fake_post(url, json=None, timeout=20):  # noqa: A002
+        calls.append({"url": url, "json": json})
+        return _Resp()
+
+    monkeypatch.setattr(notify.requests, "post", fake_post)
+    out = notify.notify_article(
+        {
+            "id": "a1",
+            "template_name": "Tổng kết thị trường",
+            "data_date": "2026-07-14",
+            "trigger": "schedule_daily",
+            "article_markdown": "## Báo cáo\n\nVN-Index tăng.",
+            "word_count": 12,
+            "generated_at": "14/07/2026 15:20",
+        },
+        trigger="schedule_daily",
+    )
+    assert out["skipped"] is False
+    assert out["ok_count"] == 1
+    assert calls and "hooks.slack.test" in calls[0]["url"]
+
+
+def test_notify_trigger_filter(monkeypatch) -> None:
+    from core.article_notify import notify_article
+
+    monkeypatch.setenv("ARTICLE_NOTIFY_ENABLED", "true")
+    monkeypatch.setenv("ARTICLE_NOTIFY_TRIGGERS", "schedule_daily,schedule_weekly")
+    monkeypatch.setenv(
+        "ARTICLE_NOTIFY_SLACK_WEBHOOK", "https://hooks.slack.test/abc"
+    )
+    out = notify_article(
+        {
+            "id": "a1",
+            "template_name": "Test",
+            "data_date": "2026-07-14",
+            "trigger": "manual",
+            "article_markdown": "x",
+            "word_count": 1,
+            "generated_at": "t",
+        },
+        trigger="manual",
+    )
+    assert out["skipped"] is True
+    assert out["reason"] == "disabled_or_trigger_filtered"
