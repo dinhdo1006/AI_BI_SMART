@@ -6,7 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 import core.article_store as store
-from core.article_job import build_sql_for_template, default_question
+from core.article_job import (
+    _fingerprint,
+    build_sql_for_template,
+    default_question,
+    make_intraday_data_date,
+)
 from core.article_scheduler import (
     _in_time_window,
     _parse_hhmm,
@@ -72,10 +77,25 @@ def test_last_seen(tmp_path: Path, monkeypatch) -> None:
     store.update_last_seen(max_trade_date="2026-07-10")
     seen = store.get_last_seen()
     assert seen["max_trade_date"] == "2026-07-10"
-    store.update_last_seen(max_fiscal_key="2025-Q2")
+    store.update_last_seen(
+        max_fiscal_key="2025-Q2",
+        market_fingerprint="abc123",
+        fiscal_fingerprint="def456",
+    )
     seen2 = store.get_last_seen()
     assert seen2["max_fiscal_key"] == "2025-Q2"
     assert seen2["max_trade_date"] == "2026-07-10"
+    assert seen2["market_fingerprint"] == "abc123"
+    assert seen2["fiscal_fingerprint"] == "def456"
+
+
+def test_intraday_data_date_and_fingerprint() -> None:
+    when = datetime(2026, 7, 14, 15, 42, 0)
+    assert make_intraday_data_date("2026-07-14", when) == "2026-07-14T15"
+    fp1 = _fingerprint("2026-07-14", 100, 1.0, 2.0, 9)
+    fp2 = _fingerprint("2026-07-14", 101, 1.0, 2.0, 9)
+    assert fp1 != fp2
+    assert len(fp1) == 16
 
 
 def test_build_sql_known_templates() -> None:

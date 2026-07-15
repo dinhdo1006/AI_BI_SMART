@@ -235,6 +235,8 @@ export type AutoArticleSchedulerStatus = {
   running: boolean;
   daily_enabled?: boolean;
   weekly_enabled?: boolean;
+  /** true = viết lại khi fingerprint DB đổi trong cùng ngày/kỳ */
+  intraday_enabled?: boolean;
   daily_time?: string;
   weekly_time?: string;
   last_run_at?: string | null;

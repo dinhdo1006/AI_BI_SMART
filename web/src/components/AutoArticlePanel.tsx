@@ -143,7 +143,11 @@ export function AutoArticlePanel({ domainId }: { domainId: string }) {
           {scheduler && (
             <p className="text-[11px] leading-snug text-ink-soft/75">
               {scheduler.enabled && scheduler.running
-                ? `Scheduler mỗi ${scheduler.interval_minutes} phút · daily ${scheduler.daily_time}`
+                ? `Scheduler mỗi ${scheduler.interval_minutes} phút · daily ${scheduler.daily_time}${
+                    scheduler.intraday_enabled !== false
+                      ? " · theo dõi cập nhật trong ngày"
+                      : ""
+                  }`
                 : "Scheduler tắt — chỉ chạy tay"}
               {scheduler.last_run_at
                 ? ` · gần nhất ${new Date(scheduler.last_run_at).toLocaleTimeString("vi-VN")}`

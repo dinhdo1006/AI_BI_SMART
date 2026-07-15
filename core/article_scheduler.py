@@ -61,6 +61,7 @@ def get_scheduler_status() -> dict[str, Any]:
         "running": bool(_state["running"]),
         "daily_enabled": bool(_state["daily_enabled"]),
         "weekly_enabled": bool(_state["weekly_enabled"]),
+        "intraday_enabled": _env_bool("ARTICLE_INTRADAY_ENABLED", default=True),
         "daily_time": str(_state["daily_time"]),
         "weekly_time": str(_state["weekly_time"]),
         "last_run_at": _state["last_run_at"],
@@ -84,8 +85,10 @@ def run_scheduled_checks() -> dict[str, Any]:
     """
     from core.article_job import (
         DOMAIN_ID,
-        fetch_max_fiscal_key,
+        fetch_fiscal_watermark,
+        fetch_market_watermark,
         fetch_max_trade_date,
+        make_intraday_data_date,
         run_article_job,
     )
     from core.article_store import get_last_seen, get_meta, update_last_seen, update_meta
@@ -96,6 +99,7 @@ def run_scheduled_checks() -> dict[str, Any]:
 
     daily_enabled = _env_bool("ARTICLE_DAILY_ENABLED", default=True)
     weekly_enabled = _env_bool("ARTICLE_WEEKLY_ENABLED", default=True)
+    intraday_enabled = _env_bool("ARTICLE_INTRADAY_ENABLED", default=True)
     daily_hh, daily_mm = _parse_hhmm(
         os.getenv("ARTICLE_DAILY_TIME", "15:20"), "15:20"
     )
@@ -144,37 +148,96 @@ def run_scheduled_checks() -> dict[str, Any]:
             if result.get("status") in {"ok", "skipped"}:
                 update_meta(last_weekly_key=week_key)
 
-    # --- DB poll: stock prices ---
+    # --- DB poll: stock prices (ngày mới + cập nhật trong ngày) ---
     seen = get_last_seen()
-    max_trade = fetch_max_trade_date(DOMAIN_ID)
-    if max_trade and max_trade != seen.get("max_trade_date"):
-        # Dữ liệu phiên mới → viết tổng kết (dedup theo data_date)
-        result = run_article_job(
-            template_id="market_01",
-            domain_id=DOMAIN_ID,
-            data_date=max_trade,
-            trigger="db_poll",
-        )
-        jobs.append({"job": "poll_market_01", **result})
-        if result.get("status") == "error":
-            errors += 1
-        else:
-            update_last_seen(max_trade_date=max_trade)
+    market_wm = fetch_market_watermark(DOMAIN_ID)
+    if market_wm:
+        max_trade = str(market_wm["trade_date"])
+        market_fp = str(market_wm["fingerprint"])
+        prev_date = seen.get("max_trade_date")
+        prev_fp = seen.get("market_fingerprint")
+        market_changed = market_fp != prev_fp
+        if market_changed:
+            if max_trade != prev_date:
+                # Phiên / ngày giao dịch mới
+                data_date = max_trade
+                force = False
+                trigger = "db_poll"
+            elif intraday_enabled:
+                # Cùng ngày nhưng số liệu đã đổi (nạp thêm / sửa lệnh…)
+                data_date = make_intraday_data_date(max_trade, now)
+                force = True  # ghi đè bài cùng khung giờ nếu poll lại
+                trigger = "db_poll_intraday"
+            else:
+                # Không viết lại trong ngày — vẫn cập nhật fingerprint để khỏi spam
+                update_last_seen(
+                    max_trade_date=max_trade,
+                    market_fingerprint=market_fp,
+                )
+                data_date = ""
+                force = False
+                trigger = "db_poll"
 
-    # --- DB poll: BCTC quý/năm mới ---
-    max_fiscal = fetch_max_fiscal_key(DOMAIN_ID)
-    if max_fiscal and max_fiscal != seen.get("max_fiscal_key"):
-        result = run_article_job(
-            template_id="company_01",
-            domain_id=DOMAIN_ID,
-            data_date=max_fiscal,
-            trigger="db_poll",
-        )
-        jobs.append({"job": "poll_company_01", **result})
-        if result.get("status") == "error":
-            errors += 1
-        else:
-            update_last_seen(max_fiscal_key=max_fiscal)
+            if data_date:
+                result = run_article_job(
+                    template_id="market_01",
+                    domain_id=DOMAIN_ID,
+                    data_date=data_date,
+                    trigger=trigger,
+                    force=force,
+                )
+                jobs.append({"job": "poll_market_01", **result})
+                if result.get("status") == "error":
+                    errors += 1
+                else:
+                    update_last_seen(
+                        max_trade_date=max_trade,
+                        market_fingerprint=market_fp,
+                    )
+
+    # --- DB poll: BCTC quý/năm (kỳ mới + nạp thêm DN trong kỳ) ---
+    fiscal_wm = fetch_fiscal_watermark(DOMAIN_ID)
+    if fiscal_wm:
+        max_fiscal = str(fiscal_wm["fiscal_key"])
+        fiscal_fp = str(fiscal_wm["fingerprint"])
+        # Đọc lại sau khi market có thể vừa update last_seen
+        seen = get_last_seen()
+        prev_fiscal = seen.get("max_fiscal_key")
+        prev_ffp = seen.get("fiscal_fingerprint")
+        if fiscal_fp != prev_ffp:
+            if max_fiscal != prev_fiscal:
+                data_date = max_fiscal
+                force = False
+                trigger = "db_poll"
+            elif intraday_enabled:
+                data_date = f"{max_fiscal}T{now.strftime('%H')}"
+                force = True
+                trigger = "db_poll_intraday"
+            else:
+                update_last_seen(
+                    max_fiscal_key=max_fiscal,
+                    fiscal_fingerprint=fiscal_fp,
+                )
+                data_date = ""
+                force = False
+                trigger = "db_poll"
+
+            if data_date:
+                result = run_article_job(
+                    template_id="company_01",
+                    domain_id=DOMAIN_ID,
+                    data_date=data_date,
+                    trigger=trigger,
+                    force=force,
+                )
+                jobs.append({"job": "poll_company_01", **result})
+                if result.get("status") == "error":
+                    errors += 1
+                else:
+                    update_last_seen(
+                        max_fiscal_key=max_fiscal,
+                        fiscal_fingerprint=fiscal_fp,
+                    )
 
     ok_count = sum(1 for j in jobs if j.get("status") == "ok")
     skip_count = sum(1 for j in jobs if j.get("status") == "skipped")

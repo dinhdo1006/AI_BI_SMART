@@ -17,6 +17,9 @@ _DEFAULT: dict[str, Any] = {
     "last_seen": {
         "max_trade_date": None,
         "max_fiscal_key": None,
+        # Fingerprint để bắt cập nhật trong cùng ngày / cùng kỳ BCTC
+        "market_fingerprint": None,
+        "fiscal_fingerprint": None,
     },
     "meta": {
         "last_daily_key": None,
@@ -85,6 +88,8 @@ def update_last_seen(
     *,
     max_trade_date: str | None = None,
     max_fiscal_key: str | None = None,
+    market_fingerprint: str | None = None,
+    fiscal_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     with _LOCK:
         data = _ensure_store()
@@ -93,6 +98,10 @@ def update_last_seen(
             seen["max_trade_date"] = max_trade_date
         if max_fiscal_key is not None:
             seen["max_fiscal_key"] = max_fiscal_key
+        if market_fingerprint is not None:
+            seen["market_fingerprint"] = market_fingerprint
+        if fiscal_fingerprint is not None:
+            seen["fiscal_fingerprint"] = fiscal_fingerprint
         _write_unlocked(data)
         return dict(seen)
 
