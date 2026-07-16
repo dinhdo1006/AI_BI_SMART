@@ -11,7 +11,9 @@ import { formatNumber, friendlyLabel } from "@/lib/format";
 import {
   aggregatePieChartData,
   buildChartDensityInfo,
+  buildHeatmapRowLabel,
   CHART_DENSE_THRESHOLDS,
+  detectHeatmapDisambiguator,
   detectOhlcColumns,
   movingAverage,
   pickChartAxes,
@@ -154,6 +156,10 @@ export function DataChart({
       return buildChartDensityInfo(Math.max(rowCount, colCount), Math.max(displayedRows, displayedCols), {
         truncated,
         needsZoom,
+        extra:
+          heatmapAxes.mode === "metrics"
+            ? "Màu chuẩn hóa riêng từng chỉ số — hover để xem giá trị thật"
+            : undefined,
       });
     }
 
@@ -462,7 +468,7 @@ function chartTitle({
     return `Heatmap · ${heatmapAxes.metrics
       .slice(0, 3)
       .map((m) => friendlyLabel(m, labels))
-      .join(" · ")}`;
+      .join(" · ")} (chuẩn hóa)`;
   }
   if (effectiveType === "scatter" && scatterAxes) {
     return `${friendlyLabel(scatterAxes.x, labels)} × ${friendlyLabel(scatterAxes.y, labels)}`;
@@ -499,6 +505,8 @@ function buildHeatmapOption(
   let cells: [number, number, number | null][] = [];
   let valueHint = "";
   const maxDim = CHART_DENSE_THRESHOLDS.heatmapMaxDim;
+  const metricsNormalized = axes.mode === "metrics";
+  const rawValues = new Map<string, { value: number; metricKey: string }>();
 
   if (axes.mode === "pivot") {
     valueHint = axes.value;
@@ -527,13 +535,35 @@ function buildHeatmapOption(
   } else {
     valueHint = axes.metrics[0] || "";
     const rows = data.slice(0, maxDim);
-    rowLabels = rows.map((r) => String(r[axes.row] ?? ""));
+    const disambiguator = detectHeatmapDisambiguator(
+      rows,
+      axes.row,
+      axes.metrics,
+    );
+    rowLabels = rows.map((r) =>
+      buildHeatmapRowLabel(r, axes.row, disambiguator),
+    );
     colLabels = axes.metrics.map((m) => friendlyLabel(m, labels));
+    const colStats = axes.metrics.map((m) => {
+      const colVals = rows
+        .map((row) => Number(row[m]))
+        .filter((n) => Number.isFinite(n));
+      const cmin = colVals.length ? Math.min(...colVals) : 0;
+      const cmax = colVals.length ? Math.max(...colVals) : 1;
+      return { min: cmin, max: cmax, span: cmax - cmin || 1 };
+    });
     cells = [];
     rows.forEach((r, yi) => {
       axes.metrics.forEach((m, xi) => {
-        const n = Number(r[m]);
-        cells.push([xi, yi, Number.isFinite(n) ? n : null]);
+        const raw = Number(r[m]);
+        if (!Number.isFinite(raw)) {
+          cells.push([xi, yi, null]);
+          return;
+        }
+        const { min: cmin, span } = colStats[xi];
+        const norm = ((raw - cmin) / span) * 100;
+        cells.push([xi, yi, norm]);
+        rawValues.set(`${xi}-${yi}`, { value: raw, metricKey: m });
       });
     });
   }
@@ -541,8 +571,12 @@ function buildHeatmapOption(
   const nums = cells
     .map((c) => c[2])
     .filter((v): v is number => v != null && Number.isFinite(v));
-  const vmin = nums.length ? Math.min(...nums) : 0;
-  const vmax = nums.length ? Math.max(...nums) : 1;
+  const vmin = metricsNormalized ? 0 : nums.length ? Math.min(...nums) : 0;
+  const vmax = metricsNormalized
+    ? 100
+    : nums.length
+      ? Math.max(...nums)
+      : 1;
   const dense =
     rowLabels.length > CHART_DENSE_THRESHOLDS.heatmapZoomDim ||
     colLabels.length > CHART_DENSE_THRESHOLDS.heatmapZoomDim;
@@ -590,7 +624,14 @@ function buildHeatmapOption(
         if (!v) return "";
         const col = colLabels[v[0]] ?? "";
         const row = rowLabels[v[1]] ?? "";
-        return `${p.marker || ""} <b>${row}</b> · ${col}<br/>${formatNumber(v[2], valueHint)}`;
+        const raw = rawValues.get(`${v[0]}-${v[1]}`);
+        const displayVal = raw
+          ? formatNumber(raw.value, raw.metricKey)
+          : formatNumber(v[2], valueHint);
+        const normHint = metricsNormalized && raw
+          ? `<br/><span style="opacity:0.7">Màu: ${Math.round(v[2] ?? 0)}% trong cột</span>`
+          : "";
+        return `${p.marker || ""} <b>${row}</b> · ${col}<br/>${displayVal}${normHint}`;
       },
     },
     grid: {
@@ -632,6 +673,9 @@ function buildHeatmapOption(
       itemWidth: 12,
       itemHeight: 100,
       textStyle: { color: "#5b6b73", fontSize: 10 },
+      formatter: metricsNormalized
+        ? (v: number) => `${Math.round(v)}%`
+        : undefined,
       inRange: {
         color: ["#ecfdf5", "#5eead4", "#0f766e", "#134e4a"],
       },
@@ -645,9 +689,11 @@ function buildHeatmapOption(
           fontSize: 9,
           color: "#0b1f2a",
           formatter: (p: CallbackDataParams) => {
-            const v = Array.isArray(p.value) ? p.value[2] : p.value;
-            if (v == null || !Number.isFinite(Number(v))) return "";
-            return compactTick(Number(v), valueHint);
+            const v = Array.isArray(p.value) ? p.value : null;
+            if (!v || v[2] == null || !Number.isFinite(Number(v[2]))) return "";
+            const raw = rawValues.get(`${v[0]}-${v[1]}`);
+            if (raw) return compactTick(raw.value, raw.metricKey);
+            return compactTick(Number(v[2]), valueHint);
           },
         },
         emphasis: {

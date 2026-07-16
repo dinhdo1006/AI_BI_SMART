@@ -300,6 +300,54 @@ export function pickHeatmapAxes(
   return null;
 }
 
+/** Cột phụ để phân biệt khi cùng mã xuất hiện nhiều dòng (ngày, kỳ, …). */
+export function detectHeatmapDisambiguator(
+  data: Record<string, unknown>[],
+  entityKey: string,
+  metricKeys: string[],
+): string | null {
+  if (!data.length) return null;
+  const entityVals = data.map((r) => String(r[entityKey] ?? ""));
+  if (new Set(entityVals).size >= data.length) return null;
+
+  const cols = Object.keys(data[0]);
+  const dateCol = cols.find((c) =>
+    /date|ngay|trade_date|calc_date|period|fiscal|quarter|year/i.test(c),
+  );
+  if (dateCol) return dateCol;
+
+  return (
+    cols.find(
+      (c) =>
+        c !== entityKey &&
+        !metricKeys.includes(c) &&
+        !/id$/i.test(c) &&
+        !ENTITY_COL.test(c),
+    ) ?? null
+  );
+}
+
+/** Nhãn hàng heatmap: mã + ngày/kỳ khi trùng mã. */
+export function buildHeatmapRowLabel(
+  row: Record<string, unknown>,
+  entityKey: string,
+  disambiguator?: string | null,
+): string {
+  const entity = String(row[entityKey] ?? "");
+  if (!disambiguator) return entity;
+  const extra = formatHeatmapAxisLabel(row[disambiguator], disambiguator);
+  return extra ? `${entity} · ${extra}` : entity;
+}
+
+function formatHeatmapAxisLabel(value: unknown, col: string): string {
+  if (value == null) return "";
+  const s = String(value);
+  if (/date|ngay/i.test(col) && /^\d{4}-\d{2}-\d{2}/.test(s)) {
+    return s.slice(0, 10);
+  }
+  return s.length > 14 ? `${s.slice(0, 12)}…` : s;
+}
+
 export type ScatterAxes = {
   x: string;
   y: string;
