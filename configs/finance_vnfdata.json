@@ -121,15 +121,19 @@
       "level": "Cấp phân ngành"
     },
     "market_indices": {
-      "_table": "Chỉ số thị trường (VN-Index, VN30…)",
-      "symbol": "Mã chỉ số",
-      "name": "Tên chỉ số"
+      "_table": "Chỉ số thị trường (VN-Index, VN30…). Cột mã là code (KHÔNG phải symbol)",
+      "id": "PK chỉ số",
+      "code": "Mã chỉ số (VNINDEX, VN30…)",
+      "name": "Tên chỉ số",
+      "exchange_id": "FK → exchanges.id"
     },
     "index_constituents": {
-      "_table": "Thành phần chỉ số",
-      "index_symbol": "Mã chỉ số",
-      "stock_symbol": "Mã CP thành phần",
-      "weight": "Tỷ trọng"
+      "_table": "Thành phần chỉ số. Cột: group_code + ticker (KHÔNG có index_symbol/stock_symbol/weight)",
+      "id": "PK",
+      "group_code": "Mã nhóm/chỉ số (vd: VN30) — lọc UPPER(group_code) LIKE '%VN30%'",
+      "ticker": "Mã CP thành phần",
+      "company_id": "FK → companies.id (có thể NULL)",
+      "updated_at": "Cập nhật lần cuối"
     },
     "corporate_actions": {
       "_table": "Sự kiện doanh nghiệp (cổ tức, phát hành…)",
@@ -188,7 +192,9 @@
     "fiscal_year": "Năm TC",
     "fiscal_quarter": "Quý",
     "report_type": "Loại BC",
-    "dividend_yield": "Tỷ suất cổ tức"
+    "dividend_yield": "Tỷ suất cổ tức",
+    "group_code": "Mã chỉ số / nhóm",
+    "exchange_code": "Mã sàn"
   },
   "few_shot_examples": [
     {
@@ -217,7 +223,19 @@
     },
     {
       "question": "Thành phần chỉ số VN30",
-      "sql": "SELECT index_symbol AS index_symbol, stock_symbol AS stock_symbol, weight AS weight FROM index_constituents WHERE UPPER(index_symbol) LIKE '%VN30%' ORDER BY weight DESC NULLS LAST LIMIT 40"
+      "sql": "SELECT ic.group_code AS group_code, ic.ticker AS ticker, c.company_name AS company_name FROM index_constituents ic LEFT JOIN companies c ON c.id = ic.company_id WHERE UPPER(ic.group_code) LIKE '%VN30%' ORDER BY ic.ticker ASC LIMIT 40"
+    },
+    {
+      "question": "Diễn biến giá ACB 5 phiên gần nhất",
+      "sql": "SELECT c.ticker AS ticker, sp.trade_date AS trade_date, sp.open_price AS open_price, sp.high_price AS high_price, sp.low_price AS low_price, sp.close_price AS close_price, sp.volume AS volume, sp.change_percent AS change_percent FROM stock_prices sp JOIN companies c ON c.id = sp.company_id WHERE c.ticker = 'ACB' ORDER BY sp.trade_date DESC LIMIT 5"
+    },
+    {
+      "question": "Danh sách công ty",
+      "sql": "SELECT c.ticker AS ticker, c.company_name AS company_name, c.short_name AS short_name, e.code AS exchange FROM companies c LEFT JOIN exchanges e ON e.id = c.exchange_id ORDER BY c.ticker ASC LIMIT 50"
+    },
+    {
+      "question": "Giá cổ phiếu phiên gần nhất",
+      "sql": "SELECT c.ticker AS ticker, c.company_name AS company_name, sp.trade_date AS trade_date, sp.close_price AS close_price, sp.change_percent AS change_percent, sp.volume AS volume FROM stock_prices sp JOIN companies c ON c.id = sp.company_id WHERE sp.trade_date = (SELECT MAX(trade_date) FROM stock_prices) ORDER BY sp.volume DESC NULLS LAST LIMIT 40"
     }
   ]
 }

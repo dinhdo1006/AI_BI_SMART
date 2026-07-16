@@ -33,6 +33,7 @@ from core.router import (
 from core.schema_introspection import check_db_connection
 from core.schema_rag import build_rag_schema_context, is_schema_rag_enabled
 from core.sql_fast_path import try_fast_sql
+from core.entity_resolver import resolve_query_entities
 from core.viz_advisor import ChartType, is_viz_only_request, resolve_chart_type
 from utils.report_export import create_word_report_api
 
@@ -716,6 +717,8 @@ def chat(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     labels = domain_config.get("column_labels", {}) or {}
+    entities = resolve_query_entities(request.query, domain_config.get("db_url"))
+    entity_hint = str(entities.get("hint") or "")
 
     # Bước 2: Fast-path SQL (ổn định) hoặc Router → LLM
     sql = try_fast_sql(
@@ -821,7 +824,12 @@ def chat(
         sql_config = build_rag_schema_context(domain_config, request.query)
         try:
             t_llm = time.perf_counter()
-            sql = generate_sql(sql_config, request.query, history=history_dicts)
+            sql = generate_sql(
+                sql_config,
+                request.query,
+                history=history_dicts,
+                entity_hint=entity_hint,
+            )
             latency_llm_ms += (time.perf_counter() - t_llm) * 1000
         except Exception as exc:
             _log_out("error", error=str(exc))
@@ -847,6 +855,7 @@ def chat(
                 broken_sql=sql,
                 error_message=str(first_exc),
                 history=history_dicts,
+                entity_hint=entity_hint,
             )
             latency_llm_ms += (time.perf_counter() - t_llm) * 1000
             sql_source = "repair"

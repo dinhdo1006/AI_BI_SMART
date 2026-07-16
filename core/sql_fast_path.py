@@ -1,10 +1,11 @@
-"""Fast-path SQL cho câu hỏi phổ biến — bỏ qua LLM, ổn định & nhanh."""
+"""Fast-path SQL cho domain demo SQLite — Postgres dùng LLM + entity resolver."""
 
 from __future__ import annotations
 
 import re
 import unicodedata
 
+# Chỉ dùng cho schema SQLite demo (ma_cp) — không phải danh sách đóng cho Postgres.
 _STOCK_TICKERS = (
     "FPT", "VCB", "HPG", "SSI", "MWG",
     "VNM", "TCB", "BID", "GAS", "MSN", "REE", "PNJ",
@@ -268,125 +269,9 @@ def _finance_fast_sql(user_query: str, norm: str) -> str | None:
 
 def _finance_pg_fast_sql(user_query: str, norm: str) -> str | None:
     """
-    Fast-path cho vnfdatadb (PostgreSQL) — schema thật:
-    companies / stock_prices / financial_statements / financial_indicators.
+    Postgres / vnfdatadb: không map intent → SQL cứng.
+    Schema đúng + Schema RAG + entity resolver (mã từ DB) → LLM sinh SQL.
     """
-    ticker = _extract_ticker(user_query, norm)
-    tickers = _extract_tickers(user_query, norm)
-    limit = _extract_limit(norm, default=5)
-
-    # Top vốn hóa
-    if any(k in norm for k in ("von hoa", "von hóa", "market cap", "vonhoa")) and any(
-        k in norm for k in ("top", "lon nhat", "lớn nhất", "cao nhat", "cao nhất")
-    ):
-        hose = any(k in norm for k in ("hose", "hsx", "san hose"))
-        join_ex = (
-            " JOIN companies c ON c.ticker = fi.symbol"
-            " LEFT JOIN exchanges e ON e.id = c.exchange_id"
-            if hose
-            else " JOIN companies c ON c.ticker = fi.symbol"
-        )
-        where_ex = (
-            " AND UPPER(COALESCE(e.code, '')) IN ('HOSE', 'HSX')" if hose else ""
-        )
-        return (
-            "SELECT fi.symbol AS ticker, c.company_name AS company_name, "
-            "fi.market_cap AS market_cap, fi.pe_ratio AS pe_ratio, "
-            "fi.eps_ttm AS eps_ttm "
-            "FROM financial_indicators fi"
-            f"{join_ex} "
-            "WHERE fi.calc_date = (SELECT MAX(calc_date) FROM financial_indicators)"
-            f"{where_ex} "
-            "ORDER BY fi.market_cap DESC NULLS LAST "
-            f"LIMIT {limit}"
-        )
-
-    # So sánh P/E P/B ROE / EPS nhiều mã
-    if len(tickers) >= 2 and (
-        "so sanh" in norm
-        or "so sánh" in user_query.lower()
-        or any(k in norm for k in ("pe", "pb", "roe", "roa", "eps"))
-    ):
-        in_list = ", ".join(f"'{t}'" for t in tickers[:6])
-        return (
-            "SELECT DISTINCT ON (fi.symbol) fi.symbol AS ticker, "
-            "fi.pe_ratio AS pe_ratio, fi.pb_ratio AS pb_ratio, "
-            "fi.eps_ttm AS eps_ttm, fi.roe AS roe, fi.roa AS roa, "
-            "fi.market_cap AS market_cap, fi.calc_date AS calc_date "
-            "FROM financial_indicators fi "
-            f"WHERE fi.symbol IN ({in_list}) "
-            "ORDER BY fi.symbol ASC, fi.calc_date DESC"
-        )
-
-    # Doanh thu / LN theo quý của 1 mã
-    if ticker and any(
-        k in norm
-        for k in (
-            "doanh thu",
-            "loi nhuan",
-            "lợi nhuận",
-            "ln sau thue",
-            "bctc",
-            "bao cao tai chinh",
-        )
-    ):
-        return (
-            "SELECT c.ticker AS ticker, fs.fiscal_year AS fiscal_year, "
-            "fs.fiscal_quarter AS fiscal_quarter, fs.report_type AS report_type, "
-            "fs.net_revenue AS net_revenue, fs.net_income AS net_income, "
-            "fs.total_assets AS total_assets, fs.equity AS equity "
-            "FROM financial_statements fs "
-            "JOIN companies c ON c.id = fs.company_id "
-            f"WHERE c.ticker = '{ticker}' "
-            "ORDER BY fs.fiscal_year DESC, fs.fiscal_quarter DESC NULLS LAST "
-            "LIMIT 12"
-        )
-
-    # Giá / OHLCV N phiên
-    if ticker and any(
-        k in norm
-        for k in (
-            "gia",
-            "phien",
-            "dong cua",
-            "đóng cửa",
-            "ohlc",
-            "khoi luong",
-            "khối lượng",
-            "dien bien",
-            "diễn biến",
-        )
-    ):
-        n = _extract_limit(norm, default=20)
-        if "phien" not in norm and not re.search(r"\d+", norm):
-            n = 20
-        inner = (
-            "SELECT c.ticker AS ticker, sp.trade_date AS trade_date, "
-            "sp.open_price AS open_price, sp.high_price AS high_price, "
-            "sp.low_price AS low_price, sp.close_price AS close_price, "
-            "sp.volume AS volume, sp.change_percent AS change_percent "
-            "FROM stock_prices sp "
-            "JOIN companies c ON c.id = sp.company_id "
-            f"WHERE c.ticker = '{ticker}' "
-            f"ORDER BY sp.trade_date DESC LIMIT {n}"
-        )
-        return (
-            f"SELECT * FROM ({inner}) AS _fp ORDER BY trade_date ASC"
-        )
-
-    # Liệt kê mã HOSE
-    if any(k in norm for k in ("hose", "hsx")) and any(
-        k in norm for k in ("liet ke", "liệt kê", "danh sach", "danh sách", "ma tren")
-    ):
-        return (
-            "SELECT c.ticker AS ticker, c.company_name AS company_name, "
-            "e.code AS exchange "
-            "FROM companies c "
-            "LEFT JOIN exchanges e ON e.id = c.exchange_id "
-            "WHERE UPPER(COALESCE(e.code, '')) IN ('HOSE', 'HSX') "
-            "ORDER BY c.ticker ASC LIMIT 50"
-        )
-
     return None
 
 
@@ -397,10 +282,8 @@ def try_fast_sql(
     db_url: str | None = None,
 ) -> str | None:
     """
-    Trả về SQL chuẩn nếu nhận diện được mẫu câu hỏi quen thuộc.
-    Hỗ trợ: finance_vnfdata.
-
-    Finance + PostgreSQL: dùng schema vnfdatadb (companies/stock_prices/…).
+    Fast-path chỉ cho schema SQLite demo.
+    finance_vnfdata + PostgreSQL → None (tránh hardcode câu hỏi).
     """
     from core.db_dialect import detect_dialect
 
