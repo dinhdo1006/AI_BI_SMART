@@ -673,9 +673,7 @@ function buildHeatmapOption(
       itemWidth: 12,
       itemHeight: 100,
       textStyle: { color: "#5b6b73", fontSize: 10 },
-      formatter: metricsNormalized
-        ? (v: number) => `${Math.round(v)}%`
-        : undefined,
+      ...(metricsNormalized ? { formatter: "{value}%" } : {}),
       inRange: {
         color: ["#ecfdf5", "#5eead4", "#0f766e", "#134e4a"],
       },
