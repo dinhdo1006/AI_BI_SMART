@@ -258,7 +258,24 @@ def generate_sql(
     raw_output: str = _get_llm(
         model=_SQL_MODEL, num_predict=_SQL_NUM_PREDICT
     ).invoke(full_prompt)
-    return _clean_sql_output(raw_output)
+    sql = _clean_sql_output(raw_output)
+    if sql:
+        return sql
+
+    # Retry tự động khi LLM trả rỗng / chỉ giải thích — không hardcode SQL
+    retry_prompt = (
+        f"{system_prompt}\n\n"
+        f"{hint_block}"
+        f"=== CURRENT QUESTION ===\n{user_query}\n\n"
+        f"IMPORTANT: Previous attempt produced NO SQL. "
+        f"Output exactly ONE PostgreSQL SELECT starting with SELECT or WITH. "
+        f"No markdown, no Vietnamese explanation.\n\n"
+        f"SQL:"
+    )
+    raw_retry: str = _get_llm(
+        model=_SQL_MODEL, num_predict=_SQL_NUM_PREDICT
+    ).invoke(retry_prompt)
+    return _clean_sql_output(raw_retry)
 
 
 def repair_sql(

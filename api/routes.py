@@ -34,6 +34,7 @@ from core.schema_introspection import check_db_connection
 from core.schema_rag import build_rag_schema_context, is_schema_rag_enabled
 from core.sql_fast_path import try_fast_sql
 from core.entity_resolver import resolve_query_entities
+from core.few_shot_retriever import best_few_shot_sql
 from core.viz_advisor import ChartType, is_viz_only_request, resolve_chart_type
 from utils.report_export import create_word_report_api
 
@@ -838,7 +839,34 @@ def chat(
                 detail=f"Lỗi khi gọi LLM sinh SQL (Ollama): {exc}",
             ) from exc
 
-    # Bước 3: Guardrail + thực thi (nếu lỗi → sửa 1 lần → fast-path fallback)
+    # Phục hồi khi LLM trả SQL rỗng — repair → few-shot gần nhất (không hardcode intent)
+    if not (sql or "").strip():
+        sql_config = build_rag_schema_context(domain_config, request.query)
+        try:
+            t_llm = time.perf_counter()
+            sql = repair_sql(
+                sql_config,
+                request.query,
+                broken_sql="(empty)",
+                error_message="Model returned empty SQL. Write one valid SELECT.",
+                history=history_dicts,
+                entity_hint=entity_hint,
+            )
+            latency_llm_ms += (time.perf_counter() - t_llm) * 1000
+            if (sql or "").strip():
+                sql_source = "repair"
+        except Exception:
+            pass
+        if not (sql or "").strip():
+            retrieved = best_few_shot_sql(
+                request.query,
+                domain_config.get("few_shot_examples") or [],
+            )
+            if retrieved:
+                sql = retrieved
+                sql_source = "few_shot_retrieval"
+
+    # Bước 3: Guardrail + thực thi (nếu lỗi → sửa 1 lần → fast-path / few-shot fallback)
     rows: list[dict[str, Any]] = []
     try:
         t_db = time.perf_counter()
@@ -869,10 +897,18 @@ def chat(
                 request.query,
                 db_url=domain_config["db_url"],
             )
+            if not fallback_sql:
+                fallback_sql = best_few_shot_sql(
+                    request.query,
+                    domain_config.get("few_shot_examples") or [],
+                )
+                if fallback_sql:
+                    sql_source = "few_shot_retrieval"
             if fallback_sql:
                 try:
                     sql = fallback_sql
-                    sql_source = "fast_path_fallback"
+                    if sql_source != "few_shot_retrieval":
+                        sql_source = "fast_path_fallback"
                     t_db = time.perf_counter()
                     rows = execute_query(domain_config["db_url"], sql)
                     latency_db_ms += (time.perf_counter() - t_db) * 1000

@@ -217,6 +217,11 @@ def build_rag_schema_context(
     out["sql_dialect"] = dialect
 
     if not is_schema_rag_enabled():
+        from core.few_shot_retriever import rank_few_shots
+
+        few_shot = domain_config.get("few_shot_examples") or []
+        if few_shot:
+            out["few_shot_examples"] = rank_few_shots(user_query, list(few_shot))
         out["schema_rag_tables"] = []
         return out
 
@@ -236,6 +241,12 @@ def build_rag_schema_context(
         few_shot,
     )
     out["schema_rag_tables"] = selected
+
+    # Đưa few-shot liên quan lên đầu prompt (tự động theo câu hỏi)
+    from core.few_shot_retriever import rank_few_shots
+
+    if few_shot:
+        out["few_shot_examples"] = rank_few_shots(user_query, list(few_shot))
 
     subset = {k: live_schema[k] for k in selected if k in live_schema}
     rag_ddl = tables_to_ddl(subset, dialect)

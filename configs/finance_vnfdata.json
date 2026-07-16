@@ -202,6 +202,10 @@
       "sql": "SELECT fi.symbol AS ticker, c.company_name AS company_name, fi.market_cap AS market_cap, fi.pe_ratio AS pe_ratio, fi.eps_ttm AS eps_ttm FROM financial_indicators fi JOIN companies c ON c.ticker = fi.symbol WHERE fi.calc_date = (SELECT MAX(calc_date) FROM financial_indicators) ORDER BY fi.market_cap DESC NULLS LAST LIMIT 10"
     },
     {
+      "question": "Phân tích thị trường vốn hóa",
+      "sql": "SELECT fi.symbol AS ticker, c.company_name AS company_name, fi.market_cap AS market_cap, fi.pe_ratio AS pe_ratio, fi.eps_ttm AS eps_ttm FROM financial_indicators fi JOIN companies c ON c.ticker = fi.symbol WHERE fi.calc_date = (SELECT MAX(calc_date) FROM financial_indicators) ORDER BY fi.market_cap DESC NULLS LAST LIMIT 10"
+    },
+    {
       "question": "Diễn biến giá đóng cửa và khối lượng FPT 20 phiên gần nhất",
       "sql": "SELECT c.ticker AS ticker, sp.trade_date AS trade_date, sp.open_price AS open_price, sp.high_price AS high_price, sp.low_price AS low_price, sp.close_price AS close_price, sp.volume AS volume, sp.change_percent AS change_percent FROM stock_prices sp JOIN companies c ON c.id = sp.company_id WHERE c.ticker = 'FPT' ORDER BY sp.trade_date DESC LIMIT 20"
     },
