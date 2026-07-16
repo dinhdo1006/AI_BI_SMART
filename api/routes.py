@@ -338,6 +338,94 @@ def get_domains_health() -> dict[str, Any]:
     return results
 
 
+@router.get("/data-quality")
+def get_data_quality(domain_id: str = "finance_vnfdata") -> dict[str, Any]:
+    """
+    Tóm tắt chất lượng giá đóng cửa từ price_cross_check:
+    - Tổng verified / divergent
+    - Top mã lệch nhiều ngày nhất
+    - Divergent theo ngày (30 ngày gần nhất)
+    """
+    try:
+        cfg = load_domain_config(domain_id)
+    except (FileNotFoundError, ValueError):
+        domains = list_available_domains()
+        if not domains:
+            raise HTTPException(status_code=404, detail="No domain configured")
+        cfg = load_domain_config(domains[0])
+
+    from sqlalchemy import text as sa_text
+    from core.db_engine import get_engine
+
+    db_url = cfg["db_url"]
+    try:
+        engine = get_engine(db_url)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"DB unavailable: {exc}") from exc
+
+    try:
+        with engine.connect() as conn:
+            summary_rows = conn.execute(sa_text(
+                "SELECT status, count(*) AS cnt FROM price_cross_check GROUP BY status ORDER BY status"
+            )).fetchall()
+
+            top_rows = conn.execute(sa_text("""
+                SELECT c.ticker,
+                       c.company_name,
+                       count(*)                                   AS days_divergent,
+                       round(avg(pcc.max_diff_pct)::numeric, 2)  AS avg_diff_pct,
+                       round(max(pcc.max_diff_pct)::numeric, 2)  AS max_diff_pct,
+                       max(pcc.trade_date)::text                 AS latest_date
+                FROM price_cross_check pcc
+                JOIN companies c ON c.id = pcc.company_id
+                WHERE pcc.status = 'divergent'
+                GROUP BY c.ticker, c.company_name
+                ORDER BY days_divergent DESC, max_diff_pct DESC
+                LIMIT 20
+            """)).fetchall()
+
+            date_rows = conn.execute(sa_text("""
+                SELECT trade_date::text,
+                       count(*)                                  AS cnt,
+                       round(max(max_diff_pct)::numeric, 2)     AS max_diff_pct
+                FROM price_cross_check
+                WHERE status = 'divergent'
+                  AND trade_date >= current_date - 30
+                GROUP BY trade_date
+                ORDER BY trade_date DESC
+            """)).fetchall()
+
+            last_checked = conn.execute(sa_text(
+                "SELECT max(checked_at)::text FROM price_cross_check"
+            )).scalar()
+
+        return {
+            "last_checked": last_checked,
+            "summary": {row[0]: row[1] for row in summary_rows},
+            "top_divergent_tickers": [
+                {
+                    "ticker": row[0],
+                    "company_name": row[1],
+                    "days_divergent": row[2],
+                    "avg_diff_pct": float(row[3]) if row[3] is not None else None,
+                    "max_diff_pct": float(row[4]) if row[4] is not None else None,
+                    "latest_date": row[5],
+                }
+                for row in top_rows
+            ],
+            "divergent_by_date": [
+                {
+                    "trade_date": row[0],
+                    "divergent_count": row[1],
+                    "max_diff_pct": float(row[2]) if row[2] is not None else None,
+                }
+                for row in date_rows
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/generate_article", response_model=ArticleResponse)
 def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
     """

@@ -274,8 +274,17 @@ export function pickHeatmapAxes(
 
   if (categorical.length >= 2 && preferred[0]) {
     const row = entity || categorical[0];
-    const col = categorical.find((c) => c !== row) || categorical[1];
-    if (uniqueCount(data, row) >= 2 && uniqueCount(data, col) >= 2) {
+    // Prefer a non-entity column as col axis to avoid sparse diagonal pivots
+    // (e.g. ticker × company_name both match ENTITY_COL but map 1:1)
+    const col =
+      categorical.find((c) => c !== row && !ENTITY_COL.test(c)) ??
+      categorical.find((c) => c !== row);
+    if (
+      col &&
+      !(ENTITY_COL.test(row) && ENTITY_COL.test(col)) &&
+      uniqueCount(data, row) >= 2 &&
+      uniqueCount(data, col) >= 2
+    ) {
       return { mode: "pivot", row, col, value: preferred[0] };
     }
   }
@@ -516,4 +525,89 @@ export function movingAverage(
     out.push(count === window ? sum / window : null);
   }
   return out;
+}
+
+/** Ngưỡng hiển thị khi dữ liệu quá dày. */
+export const CHART_DENSE_THRESHOLDS = {
+  dataZoom: 24,
+  pieMaxSlices: 12,
+  heatmapMaxDim: 80,
+  heatmapZoomDim: 16,
+  scatterLarge: 120,
+  horizontalBarRowHeight: 28,
+  horizontalBarMinHeight: 310,
+  horizontalBarMaxHeight: 720,
+} as const;
+
+export type ChartDensityInfo = {
+  totalPoints: number;
+  displayedPoints: number;
+  truncated: boolean;
+  needsZoom: boolean;
+  message?: string;
+};
+
+/** Thông báo gợi ý khi biểu đồ có quá nhiều điểm. */
+export function buildChartDensityInfo(
+  totalPoints: number,
+  displayedPoints: number,
+  opts?: {
+    needsZoom?: boolean;
+    truncated?: boolean;
+    extra?: string;
+  },
+): ChartDensityInfo | null {
+  const truncated = opts?.truncated ?? displayedPoints < totalPoints;
+  const needsZoom = opts?.needsZoom ?? false;
+  if (!truncated && !needsZoom) return null;
+
+  const parts: string[] = [];
+  if (truncated) {
+    parts.push(
+      `Hiển thị ${displayedPoints.toLocaleString("vi-VN")}/${totalPoints.toLocaleString("vi-VN")} điểm`,
+    );
+  }
+  if (needsZoom) {
+    parts.push(
+      `${totalPoints.toLocaleString("vi-VN")} điểm — kéo thanh zoom hoặc cuộn chuột để xem toàn bộ`,
+    );
+  }
+  if (opts?.extra) parts.push(opts.extra);
+
+  return {
+    totalPoints,
+    displayedPoints,
+    truncated,
+    needsZoom,
+    message: parts.join(" · "),
+  };
+}
+
+/** Gom các lát pie nhỏ thành "Khác" khi quá nhiều danh mục. */
+export function aggregatePieChartData(
+  rows: Record<string, unknown>[],
+  valueKey: string,
+  maxSlices = CHART_DENSE_THRESHOLDS.pieMaxSlices,
+): {
+  rows: Record<string, unknown>[];
+  aggregated: boolean;
+  hiddenCount: number;
+} {
+  if (rows.length <= maxSlices) {
+    return { rows, aggregated: false, hiddenCount: 0 };
+  }
+  const sorted = [...rows].sort(
+    (a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0),
+  );
+  const top = sorted.slice(0, maxSlices - 1);
+  const rest = sorted.slice(maxSlices - 1);
+  const otherSum = rest.reduce((s, r) => s + (Number(r[valueKey]) || 0), 0);
+  return {
+    rows: [
+      ...top,
+      { name: `Khác (${rest.length})`, [valueKey]: otherSum },
+    ],
+    aggregated: true,
+    hiddenCount: rest.length,
+  };
 }

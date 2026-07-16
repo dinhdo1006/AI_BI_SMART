@@ -9,6 +9,9 @@ import { Download } from "lucide-react";
 import type { ChartType, Forecast } from "@/lib/types";
 import { formatNumber, friendlyLabel } from "@/lib/format";
 import {
+  aggregatePieChartData,
+  buildChartDensityInfo,
+  CHART_DENSE_THRESHOLDS,
   detectOhlcColumns,
   movingAverage,
   pickChartAxes,
@@ -19,6 +22,7 @@ import {
   pickWaterfallAxes,
   refineChartType,
   shouldUseHorizontalBar,
+  type ChartDensityInfo,
   type HeatmapAxes,
   type RadarAxes,
   type ScatterAxes,
@@ -123,6 +127,71 @@ export function DataChart({
     [effectiveType, data],
   );
 
+  const densityInfo = useMemo((): ChartDensityInfo | null => {
+    const total = data.length;
+    if (!total) return null;
+
+    if (effectiveType === "heatmap" && heatmapAxes) {
+      const rowKey =
+        heatmapAxes.mode === "pivot" ? heatmapAxes.row : heatmapAxes.row;
+      const colKey =
+        heatmapAxes.mode === "pivot"
+          ? heatmapAxes.col
+          : heatmapAxes.metrics[0];
+      const rowCount = new Set(data.map((r) => String(r[rowKey] ?? ""))).size;
+      const colCount =
+        heatmapAxes.mode === "pivot"
+          ? new Set(data.map((r) => String(r[colKey] ?? ""))).size
+          : heatmapAxes.metrics.length;
+      const displayedRows = Math.min(rowCount, CHART_DENSE_THRESHOLDS.heatmapMaxDim);
+      const displayedCols = Math.min(colCount, CHART_DENSE_THRESHOLDS.heatmapMaxDim);
+      const truncated =
+        rowCount > CHART_DENSE_THRESHOLDS.heatmapMaxDim ||
+        colCount > CHART_DENSE_THRESHOLDS.heatmapMaxDim;
+      const needsZoom =
+        rowCount > CHART_DENSE_THRESHOLDS.heatmapZoomDim ||
+        colCount > CHART_DENSE_THRESHOLDS.heatmapZoomDim;
+      return buildChartDensityInfo(Math.max(rowCount, colCount), Math.max(displayedRows, displayedCols), {
+        truncated,
+        needsZoom,
+      });
+    }
+
+    if (effectiveType === "pie") {
+      const aggregated = total > CHART_DENSE_THRESHOLDS.pieMaxSlices;
+      return buildChartDensityInfo(total, aggregated ? CHART_DENSE_THRESHOLDS.pieMaxSlices : total, {
+        truncated: aggregated,
+        extra: aggregated ? "Các mục nhỏ đã gom vào \"Khác\"" : undefined,
+      });
+    }
+
+    if (effectiveType === "scatter") {
+      return buildChartDensityInfo(total, total, {
+        needsZoom: total > CHART_DENSE_THRESHOLDS.scatterLarge,
+        extra:
+          total > CHART_DENSE_THRESHOLDS.scatterLarge
+            ? "Chế độ render nhanh đang bật"
+            : undefined,
+      });
+    }
+
+    const zoomable =
+      effectiveType === "line" ||
+      effectiveType === "area" ||
+      effectiveType === "bar" ||
+      effectiveType === "combo" ||
+      effectiveType === "candlestick" ||
+      effectiveType === "waterfall";
+
+    if (zoomable) {
+      return buildChartDensityInfo(total, total, {
+        needsZoom: total > CHART_DENSE_THRESHOLDS.dataZoom,
+      });
+    }
+
+    return null;
+  }, [data, effectiveType, heatmapAxes]);
+
   const option = useMemo(() => {
     if (effectiveType === "candlestick" && ohlc) {
       return buildCandlestickOption(data, ohlc);
@@ -152,6 +221,7 @@ export function DataChart({
       xLabel: friendlyLabel(x, labels),
       forecast: canShowForecast ? forecast : null,
       showMovingAvg: axes.isTimeSeries,
+      isTimeSeries: axes.isTimeSeries,
     });
   }, [
     effectiveType,
@@ -276,15 +346,36 @@ export function DataChart({
     );
   }
 
+  const pointCount = chartData.length;
+  const hasDataZoom =
+    !!densityInfo?.needsZoom &&
+    (effectiveType === "line" ||
+      effectiveType === "area" ||
+      effectiveType === "bar" ||
+      effectiveType === "combo" ||
+      effectiveType === "candlestick" ||
+      effectiveType === "waterfall" ||
+      effectiveType === "heatmap");
+
   const height =
     effectiveType === "treemap" ||
     effectiveType === "heatmap" ||
     effectiveType === "radar" ||
     effectiveType === "candlestick"
-      ? 380
+      ? hasDataZoom
+        ? 420
+        : 380
       : horizontal
-        ? 340
-        : 310;
+        ? Math.min(
+            CHART_DENSE_THRESHOLDS.horizontalBarMaxHeight,
+            Math.max(
+              CHART_DENSE_THRESHOLDS.horizontalBarMinHeight,
+              72 + pointCount * CHART_DENSE_THRESHOLDS.horizontalBarRowHeight,
+            ),
+          )
+        : hasDataZoom
+          ? 360
+          : 310;
   const title = chartTitle({
     effectiveType,
     ohlc,
@@ -313,6 +404,18 @@ export function DataChart({
           PNG
         </button>
       </div>
+
+      {densityInfo?.message && (
+        <div
+          className={`mb-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
+            densityInfo.truncated
+              ? "border-copper/30 bg-copper-soft/30 text-copper"
+              : "border-teal/20 bg-teal/5 text-ink-soft"
+          }`}
+        >
+          {densityInfo.message}
+        </div>
+      )}
 
       <ReactECharts
         option={option}
@@ -395,6 +498,7 @@ function buildHeatmapOption(
   let colLabels: string[] = [];
   let cells: [number, number, number | null][] = [];
   let valueHint = "";
+  const maxDim = CHART_DENSE_THRESHOLDS.heatmapMaxDim;
 
   if (axes.mode === "pivot") {
     valueHint = axes.value;
@@ -404,8 +508,8 @@ function buildHeatmapOption(
     const colSet = Array.from(
       new Set(data.map((r) => formatAxisLabel(r[axes.col], axes.col))),
     );
-    rowLabels = rowSet.slice(0, 40);
-    colLabels = colSet.slice(0, 40);
+    rowLabels = rowSet.slice(0, maxDim);
+    colLabels = colSet.slice(0, maxDim);
     const lookup = new Map<string, number>();
     for (const r of data) {
       const rk = String(r[axes.row] ?? "");
@@ -422,7 +526,7 @@ function buildHeatmapOption(
     });
   } else {
     valueHint = axes.metrics[0] || "";
-    const rows = data.slice(0, 40);
+    const rows = data.slice(0, maxDim);
     rowLabels = rows.map((r) => String(r[axes.row] ?? ""));
     colLabels = axes.metrics.map((m) => friendlyLabel(m, labels));
     cells = [];
@@ -439,9 +543,38 @@ function buildHeatmapOption(
     .filter((v): v is number => v != null && Number.isFinite(v));
   const vmin = nums.length ? Math.min(...nums) : 0;
   const vmax = nums.length ? Math.max(...nums) : 1;
+  const dense =
+    rowLabels.length > CHART_DENSE_THRESHOLDS.heatmapZoomDim ||
+    colLabels.length > CHART_DENSE_THRESHOLDS.heatmapZoomDim;
+  const dataZoom = dense
+    ? [
+        {
+          type: "inside" as const,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+        },
+        {
+          type: "slider" as const,
+          xAxisIndex: 0,
+          bottom: 4,
+          height: 16,
+          brushSelect: false,
+        },
+        {
+          type: "slider" as const,
+          yAxisIndex: 0,
+          right: 4,
+          width: 16,
+          brushSelect: false,
+        },
+      ]
+    : undefined;
 
   return {
     animationDuration: 700,
+    ...(dataZoom ? { dataZoom } : {}),
     tooltip: {
       position: "top",
       backgroundColor: "rgba(255,255,255,0.96)",
@@ -462,9 +595,9 @@ function buildHeatmapOption(
     },
     grid: {
       left: 12,
-      right: 72,
+      right: dense ? 88 : 72,
       top: 16,
-      bottom: 48,
+      bottom: dense ? 64 : 48,
       containLabel: true,
     },
     xAxis: {
@@ -475,7 +608,8 @@ function buildHeatmapOption(
         color: "#5b6b73",
         fontSize: 10,
         rotate: colLabels.length > 6 ? 30 : 0,
-        interval: 0,
+        interval: dense ? ("auto" as const) : 0,
+        hideOverlap: true,
       },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -606,6 +740,8 @@ function buildScatterOption(
           : `${friendlyLabel(axes.x, labels)} / ${friendlyLabel(axes.y, labels)}`,
         type: "scatter",
         data: points,
+        large: points.length > CHART_DENSE_THRESHOLDS.scatterLarge,
+        largeThreshold: CHART_DENSE_THRESHOLDS.scatterLarge,
         symbolSize: (val: number | number[]) =>
           Array.isArray(val) ? Number(val[2]) || 12 : 12,
         itemStyle: {
@@ -757,15 +893,48 @@ function buildCandlestickOption(
     });
   }
 
+  const dense = categories.length > CHART_DENSE_THRESHOLDS.dataZoom;
+  const windowPct = dense
+    ? Math.min(100, Math.max(12, Math.round(2400 / categories.length)))
+    : 100;
+  const dataZoom = dense
+    ? [
+        {
+          type: "inside" as const,
+          xAxisIndex: volumes ? [0, 1] : 0,
+          start: 100 - windowPct,
+          end: 100,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+        },
+        {
+          type: "slider" as const,
+          xAxisIndex: volumes ? [0, 1] : 0,
+          start: 100 - windowPct,
+          end: 100,
+          bottom: 6,
+          height: 18,
+          brushSelect: false,
+        },
+      ]
+    : undefined;
+
   return {
     animationDuration: 700,
     axisPointer: { link: [{ xAxisIndex: "all" }] },
+    ...(dataZoom ? { dataZoom } : {}),
     grid: volumes
       ? [
-          { left: 12, right: 16, top: 28, height: "52%", containLabel: true },
-          { left: 12, right: 16, top: "68%", height: "22%", containLabel: true },
+          { left: 12, right: 16, top: 28, height: dense ? "48%" : "52%", containLabel: true },
+          { left: 12, right: 16, top: dense ? "66%" : "68%", height: "22%", containLabel: true },
         ]
-      : { left: 12, right: 16, top: 28, bottom: 40, containLabel: true },
+      : {
+          left: 12,
+          right: 16,
+          top: 28,
+          bottom: dense ? 64 : 40,
+          containLabel: true,
+        },
     tooltip: {
       trigger: "axis",
       backgroundColor: "rgba(255,255,255,0.96)",
@@ -962,9 +1131,18 @@ function buildWaterfallOption(
     }
   }
 
+  const waterfallZoom = buildCategoryDataZoom(categories.length, false, false);
+
   return {
     animationDuration: 700,
-    grid: { left: 12, right: 16, top: 28, bottom: 48, containLabel: true },
+    ...(waterfallZoom ? { dataZoom: waterfallZoom } : {}),
+    grid: {
+      left: 12,
+      right: 16,
+      top: 28,
+      bottom: categories.length > CHART_DENSE_THRESHOLDS.dataZoom ? 72 : 48,
+      containLabel: true,
+    },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
@@ -981,6 +1159,11 @@ function buildWaterfallOption(
         color: "#5b6b73",
         fontSize: 11,
         rotate: categories.length > 6 ? 30 : 0,
+        interval:
+          categories.length > CHART_DENSE_THRESHOLDS.dataZoom
+            ? ("auto" as const)
+            : 0,
+        hideOverlap: true,
       },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -1026,6 +1209,59 @@ function buildWaterfallOption(
   };
 }
 
+function buildCategoryDataZoom(
+  count: number,
+  horizontal: boolean,
+  isTimeSeries = false,
+): EChartsOption["dataZoom"] | undefined {
+  if (count <= CHART_DENSE_THRESHOLDS.dataZoom) return undefined;
+  const windowPct = Math.min(100, Math.max(12, Math.round(2400 / count)));
+  const start = isTimeSeries ? 100 - windowPct : 0;
+  const end = isTimeSeries ? 100 : windowPct;
+
+  if (horizontal) {
+    return [
+      {
+        type: "inside",
+        yAxisIndex: 0,
+        start,
+        end,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+      },
+      {
+        type: "slider",
+        yAxisIndex: 0,
+        start,
+        end,
+        right: 4,
+        width: 16,
+        brushSelect: false,
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "inside",
+      xAxisIndex: 0,
+      start,
+      end,
+      zoomOnMouseWheel: true,
+      moveOnMouseMove: true,
+    },
+    {
+      type: "slider",
+      xAxisIndex: 0,
+      start,
+      end,
+      bottom: 6,
+      height: 18,
+      brushSelect: false,
+    },
+  ];
+}
+
 function buildOption({
   type,
   chartData,
@@ -1035,6 +1271,7 @@ function buildOption({
   xLabel,
   forecast,
   showMovingAvg = false,
+  isTimeSeries = false,
 }: {
   type: ChartType;
   chartData: Record<string, unknown>[];
@@ -1044,6 +1281,7 @@ function buildOption({
   xLabel: string;
   forecast?: Forecast | null;
   showMovingAvg?: boolean;
+  isTimeSeries?: boolean;
 }): EChartsOption {
   const forecastPts = forecast?.points || [];
   const forecastMetric = forecast?.metric;
@@ -1065,6 +1303,7 @@ function buildOption({
 
   if (type === "pie") {
     const pieY = yCols[0];
+    const { rows: pieRows } = aggregatePieChartData(chartData, pieY);
     return {
       color: COLORS,
       tooltip: {
@@ -1085,6 +1324,7 @@ function buildOption({
       },
       legend: {
         bottom: 0,
+        type: pieRows.length > 8 ? "scroll" : "plain",
         textStyle: { color: "#5b6b73", fontSize: 11 },
       },
       series: [
@@ -1099,11 +1339,12 @@ function buildOption({
             borderWidth: 2,
           },
           label: {
+            show: pieRows.length <= 10,
             formatter: "{b}\n{d}%",
             fontSize: 11,
             color: "#5b6b73",
           },
-          data: chartData.map((d, i) => ({
+          data: pieRows.map((d, i) => ({
             name: String(d.name ?? ""),
             value: Number(d[pieY]) || 0,
             itemStyle: { color: COLORS[i % COLORS.length] },
@@ -1112,6 +1353,9 @@ function buildOption({
       ],
     };
   }
+
+  const dense = categories.length > CHART_DENSE_THRESHOLDS.dataZoom;
+  const dataZoom = buildCategoryDataZoom(categories.length, horizontal, isTimeSeries);
 
   const isCombo = type === "combo" && yCols.length >= 2;
   const chartKind =
@@ -1152,7 +1396,11 @@ function buildOption({
     return {
       color: COLORS,
       animationDuration: 700,
-      grid: baseGrid,
+      ...(dataZoom ? { dataZoom } : {}),
+      grid: {
+        ...baseGrid,
+        right: dense ? 36 : baseGrid.right,
+      },
       tooltip: tip,
       legend: legendOpt(labels),
       xAxis: {
@@ -1170,7 +1418,11 @@ function buildOption({
       yAxis: {
         type: "category",
         data: categories,
-        axisLabel,
+        axisLabel: {
+          ...axisLabel,
+          interval: dense ? ("auto" as const) : 0,
+          hideOverlap: true,
+        },
         axisLine: { show: false },
         axisTick: { show: false },
       },
@@ -1181,7 +1433,11 @@ function buildOption({
   return {
     color: COLORS,
     animationDuration: 700,
-    grid: baseGrid,
+    ...(dataZoom ? { dataZoom } : {}),
+    grid: {
+      ...baseGrid,
+      bottom: dense ? 72 : baseGrid.bottom,
+    },
     tooltip: tip,
     legend: legendOpt(labels),
     xAxis: {
@@ -1194,7 +1450,7 @@ function buildOption({
       axisLabel: {
         ...axisLabel,
         rotate: categories.length > 8 ? 30 : 0,
-        interval: 0,
+        interval: dense ? ("auto" as const) : 0,
         hideOverlap: true,
       },
       axisLine: { show: false },
