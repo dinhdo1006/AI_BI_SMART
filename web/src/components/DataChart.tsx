@@ -7,12 +7,14 @@ import type { CallbackDataParams } from "echarts/types/dist/shared";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { Download } from "lucide-react";
 import type { ChartType, Forecast } from "@/lib/types";
-import { formatNumber, friendlyLabel } from "@/lib/format";
+import { formatNumber, formatAxisLabel, friendlyLabel } from "@/lib/format";
 import {
   aggregatePieChartData,
   buildChartDensityInfo,
+  buildChartPlan,
   buildHeatmapRowLabel,
   CHART_DENSE_THRESHOLDS,
+  dedupeRowsByEntity,
   detectHeatmapDisambiguator,
   detectOhlcColumns,
   prepareHeatmapMetricRows,
@@ -24,8 +26,10 @@ import {
   pickTreemapAxes,
   pickWaterfallAxes,
   refineChartType,
+  reshapeForChart,
   shouldUseHorizontalBar,
   type ChartDensityInfo,
+  type ChartPlan,
   type HeatmapAxes,
   type RadarAxes,
   type ScatterAxes,
@@ -61,48 +65,59 @@ export function DataChart({
   chartType,
   labels,
   forecast,
+  query,
   onReady,
 }: {
   data: Record<string, unknown>[];
   chartType: ChartType;
   labels?: Record<string, string>;
   forecast?: Forecast | null;
+  query?: string;
   onReady?: (getPng: () => string | null) => void;
 }) {
   const chartRef = useRef<EChartsType | null>(null);
   const axes = useMemo(() => pickChartAxes(data), [data]);
   const ohlc = useMemo(() => detectOhlcColumns(data), [data]);
   const effectiveType = useMemo(
-    () => refineChartType(chartType, data),
-    [chartType, data],
+    () => refineChartType(chartType, data, query ?? ""),
+    [chartType, data, query],
   );
-  const { x, yCols } = axes;
+  const chartPlan = useMemo(
+    () => buildChartPlan(data, effectiveType, query ?? ""),
+    [data, effectiveType, query],
+  );
+  const { x, yCols } = chartPlan || axes;
 
   const chartData = useMemo(() => {
+    if (chartPlan) return reshapeForChart(data, chartPlan);
     const rows = [...data];
-    if (axes.isTimeSeries && x) {
-      rows.sort((a, b) => String(a[x]).localeCompare(String(b[x])));
+    if (axes.isTimeSeries && axes.x) {
+      rows.sort((a, b) => String(a[axes.x!]).localeCompare(String(b[axes.x!])));
     }
     return rows.map((row) => {
       const point: Record<string, unknown> = {
-        name: formatAxisLabel(row[x], x),
+        name: formatAxisLabel(row[axes.x!], axes.x!),
       };
-      for (const y of yCols) {
+      for (const y of axes.yCols) {
         const n = Number(row[y]);
         point[y] = Number.isFinite(n) ? n : null;
       }
       return point;
     });
-  }, [data, x, yCols, axes.isTimeSeries]);
+  }, [data, chartPlan, axes]);
 
   const horizontal =
     effectiveType === "bar" &&
-    !axes.isTimeSeries &&
-    shouldUseHorizontalBar(data, x);
+    chartPlan?.mode !== "groupBy" &&
+    !chartPlan?.isTimeSeries &&
+    !!x &&
+    (chartPlan?.barMode === "stack100" ||
+      shouldUseHorizontalBar(data, x));
 
   const canShowForecast =
     !!forecast?.points?.length &&
-    axes.isTimeSeries &&
+    chartPlan?.mode !== "groupBy" &&
+    (chartPlan?.isTimeSeries ?? axes.isTimeSeries) &&
     (effectiveType === "line" || effectiveType === "area");
 
   const heatmapAxes = useMemo(
@@ -126,8 +141,10 @@ export function DataChart({
   );
   const waterfallAxes = useMemo(
     () =>
-      effectiveType === "waterfall" ? pickWaterfallAxes(data) : null,
-    [effectiveType, data],
+      effectiveType === "waterfall"
+        ? pickWaterfallAxes(data, query ?? "")
+        : null,
+    [effectiveType, data, query],
   );
 
   const densityInfo = useMemo((): ChartDensityInfo | null => {
@@ -224,8 +241,9 @@ export function DataChart({
       horizontal,
       xLabel: friendlyLabel(x, labels),
       forecast: canShowForecast ? forecast : null,
-      showMovingAvg: axes.isTimeSeries,
-      isTimeSeries: axes.isTimeSeries,
+      showMovingAvg: (chartPlan?.isTimeSeries ?? axes.isTimeSeries) && chartPlan?.mode !== "groupBy",
+      isTimeSeries: chartPlan?.isTimeSeries ?? axes.isTimeSeries,
+      chartPlan,
     });
   }, [
     effectiveType,
@@ -244,6 +262,7 @@ export function DataChart({
     radarAxes,
     waterfallAxes,
     axes.isTimeSeries,
+    chartPlan,
   ]);
 
   const getPngBase64 = useCallback(() => {
@@ -709,7 +728,9 @@ function buildScatterOption(
   axes: ScatterAxes,
   labels?: Record<string, string>,
 ): EChartsOption {
-  const points = data
+  const source =
+    axes.label != null ? dedupeRowsByEntity(data, axes.label) : data;
+  const points = source
     .map((r) => {
       const x = Number(r[axes.x]);
       const y = Number(r[axes.y]);
@@ -1082,15 +1103,16 @@ function buildRadarOption(
   axes: RadarAxes,
   labels?: Record<string, string>,
 ): EChartsOption {
+  const rows = dedupeRowsByEntity(data, axes.entity);
   const indicators = axes.metrics.map((m) => {
-    const vals = data
+    const vals = rows
       .map((r) => Math.abs(Number(r[m])))
       .filter((n) => Number.isFinite(n));
     const max = vals.length ? Math.max(...vals) * 1.15 : 1;
     return { name: friendlyLabel(m, labels), max: max || 1 };
   });
 
-  const seriesData = data.slice(0, 8).map((row, i) => ({
+  const seriesData = rows.slice(0, 8).map((row, i) => ({
     name: String(row[axes.entity] ?? i + 1),
     value: axes.metrics.map((m) => {
       const n = Number(row[m]);
@@ -1138,13 +1160,18 @@ function buildWaterfallOption(
     return Number.isFinite(n) ? n : 0;
   });
 
-  // Tất cả ≥0 (xếp hạng/cơ cấu): mỗi cột là phần đóng góp chồng từ 0.
-  // Có số âm: bridge waterfall (delta).
-  const allNonNeg = values.every((v) => v >= 0);
+  const mode = axes.mode;
   const helpers: number[] = [];
   const rises: (number | "-")[] = [];
   const falls: (number | "-")[] = [];
-  if (allNonNeg) {
+
+  if (mode === "ranking") {
+    for (const v of values) {
+      helpers.push(0);
+      rises.push(v);
+      falls.push("-");
+    }
+  } else if (mode === "composition") {
     let running = 0;
     for (const v of values) {
       helpers.push(running);
@@ -1318,6 +1345,7 @@ function buildOption({
   forecast,
   showMovingAvg = false,
   isTimeSeries = false,
+  chartPlan,
 }: {
   type: ChartType;
   chartData: Record<string, unknown>[];
@@ -1328,6 +1356,7 @@ function buildOption({
   forecast?: Forecast | null;
   showMovingAvg?: boolean;
   isTimeSeries?: boolean;
+  chartPlan?: ChartPlan | null;
 }): EChartsOption {
   const forecastPts = forecast?.points || [];
   const forecastMetric = forecast?.metric;
@@ -1345,7 +1374,9 @@ function buildOption({
       : []),
   ];
   const showLabels = chartData.length <= 10;
-  const tip = sharedTooltip(labels);
+  const valueFormatCol =
+    chartPlan?.mode === "groupBy" ? chartPlan.yCols[0] : undefined;
+  const tip = sharedTooltip(labels, valueFormatCol);
 
   if (type === "pie") {
     const pieY = yCols[0];
@@ -1436,7 +1467,10 @@ function buildOption({
     isCombo,
     forecast: useForecast ? forecast : null,
     showMovingAvg: showMovingAvg && !horizontal && !isCombo,
+    chartPlan,
   });
+
+  const isStack100 = chartPlan?.barMode === "stack100";
 
   if (horizontal) {
     return {
@@ -1451,9 +1485,11 @@ function buildOption({
       legend: legendOpt(labels),
       xAxis: {
         type: "value",
+        max: isStack100 ? 100 : undefined,
         axisLabel: {
           ...axisLabel,
-          formatter: (v: number) => compactTick(v, yCols[0]),
+          formatter: (v: number) =>
+            isStack100 ? `${v.toFixed(0)}%` : compactTick(v, yCols[0]),
         },
         splitLine: {
           lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
@@ -1531,10 +1567,12 @@ function buildOption({
         ]
       : {
           type: "value",
-          scale: true,
+          max: isStack100 ? 100 : undefined,
+          scale: !isStack100,
           axisLabel: {
             ...axisLabel,
-            formatter: (v: number) => compactTick(v, yCols[0]),
+            formatter: (v: number) =>
+              isStack100 ? `${v.toFixed(0)}%` : compactTick(v, yCols[0]),
           },
           splitLine: {
             lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
@@ -1556,6 +1594,7 @@ function buildSeries({
   isCombo,
   forecast,
   showMovingAvg = false,
+  chartPlan,
 }: {
   kind: ChartType | "combo";
   chartData: Record<string, unknown>[];
@@ -1566,12 +1605,77 @@ function buildSeries({
   isCombo: boolean;
   forecast?: Forecast | null;
   showMovingAvg?: boolean;
+  chartPlan?: ChartPlan | null;
 }): SeriesOption[] {
   const fcPts = forecast?.points || [];
   const fcMetric = forecast?.metric;
   const padNulls = (n: number) => Array.from({ length: n }, () => null as null);
   const histLen = chartData.length;
   const fcLen = fcPts.length;
+  const groupByMetric = chartPlan?.mode === "groupBy" ? chartPlan.yCols[0] : undefined;
+
+  if (chartPlan?.mode === "groupBy" && chartPlan.seriesKeys.length) {
+    const barLike = kind === "bar";
+    return chartPlan.seriesKeys.map((key, i) => {
+      const color = COLORS[i % COLORS.length];
+      const dataVals = chartData.map((d) => d[key] as number | null);
+      return {
+        name: key,
+        type: (barLike ? "bar" : "line") as "bar" | "line",
+        data: dataVals,
+        smooth: !barLike,
+        symbol: barLike ? undefined : "circle",
+        symbolSize: barLike ? undefined : 6,
+        showSymbol: !barLike && (showLabels || chartData.length <= 24),
+        emphasis: { focus: "series" as const },
+        barMaxWidth: barLike ? 28 : undefined,
+        barGap: barLike ? "8%" : undefined,
+        lineStyle: barLike ? undefined : { width: 2.4, color },
+        itemStyle: barLike
+          ? {
+              color: {
+                type: "linear" as const,
+                x: 0,
+                y: 0,
+                x2: 0,
+                y2: 1,
+                colorStops: [
+                  { offset: 0, color },
+                  { offset: 1, color: shade(color, -12) },
+                ],
+              },
+              borderRadius: [4, 4, 0, 0],
+            }
+          : { color },
+        areaStyle:
+          kind === "area"
+            ? {
+                color: {
+                  type: "linear" as const,
+                  x: 0,
+                  y: 0,
+                  x2: 0,
+                  y2: 1,
+                  colorStops: [
+                    { offset: 0, color: hexAlpha(color, 0.35) },
+                    { offset: 1, color: hexAlpha(color, 0.02) },
+                  ],
+                },
+              }
+            : undefined,
+        label: showLabels
+          ? {
+              show: true,
+              position: (barLike ? "top" : "top") as "top",
+              fontSize: 10,
+              color: "#5b6b73",
+              formatter: (p: CallbackDataParams) =>
+                formatNumber(paramValue(p), groupByMetric || key),
+            }
+          : undefined,
+      };
+    });
+  }
 
   if (isCombo) {
     const barCol = yCols[0];
@@ -1725,14 +1829,19 @@ function buildSeries({
   }
 
   // bar (default)
+  const isStack100 = chartPlan?.barMode === "stack100";
+  const isGrouped = yCols.length > 1 && !isStack100;
+
   return yCols.map((y, i) => {
     const color = COLORS[i % COLORS.length];
     return {
       name: friendlyLabel(y, labels),
       type: "bar" as const,
       data: chartData.map((d) => d[y] as number | null),
-      barMaxWidth: horizontal ? 22 : 48,
-      barGap: "12%",
+      stack: isStack100 ? "pct" : undefined,
+      barMaxWidth: horizontal ? 22 : isGrouped ? 36 : 48,
+      barGap: isGrouped ? "10%" : "12%",
+      barCategoryGap: isGrouped ? "28%" : "20%",
       itemStyle: {
         color: {
           type: "linear" as const,
@@ -1747,16 +1856,19 @@ function buildSeries({
         },
         borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0],
       },
-      label: showLabels
-        ? {
-            show: true,
-            position: horizontal ? ("right" as const) : ("top" as const),
-            fontSize: 10,
-            color: "#5b6b73",
-            formatter: (p: CallbackDataParams) =>
-              formatNumber(paramValue(p), y),
-          }
-        : undefined,
+      label:
+        showLabels || isStack100
+          ? {
+              show: true,
+              position: horizontal ? ("right" as const) : ("top" as const),
+              fontSize: 10,
+              color: "#5b6b73",
+              formatter: (p: CallbackDataParams) =>
+                isStack100
+                  ? `${Number(paramValue(p)).toFixed(1)}%`
+                  : formatNumber(paramValue(p), y),
+            }
+          : undefined,
     };
   });
 }
@@ -1769,6 +1881,7 @@ function paramValue(p: CallbackDataParams): unknown {
 
 function sharedTooltip(
   labels?: Record<string, string>,
+  valueFormatCol?: string,
 ): EChartsOption["tooltip"] {
   return {
     trigger: "axis",
@@ -1793,7 +1906,8 @@ function sharedTooltip(
             value?: number | null;
           };
           const key = item.seriesName || "";
-          return `${item.marker || ""} ${friendlyLabel(key, labels)}: <b>${formatNumber(item.value, key)}</b>`;
+          const fmtCol = valueFormatCol || key;
+          return `${item.marker || ""} ${friendlyLabel(key, labels)}: <b>${formatNumber(item.value, fmtCol)}</b>`;
         })
         .join("<br/>");
       return `<div style="margin-bottom:4px;font-weight:600">${title}</div>${rows}`;
@@ -1807,15 +1921,6 @@ function legendOpt(labels?: Record<string, string>): EChartsOption["legend"] {
     textStyle: { color: "#5b6b73", fontSize: 11 },
     formatter: (name) => friendlyLabel(name, labels),
   };
-}
-
-function formatAxisLabel(value: unknown, col: string): string {
-  if (value == null) return "";
-  const s = String(value);
-  if (/date|ngay/i.test(col) && /^\d{4}-\d{2}-\d{2}/.test(s)) {
-    return s.slice(0, 10);
-  }
-  return s.length > 18 ? `${s.slice(0, 16)}…` : s;
 }
 
 function compactTick(v: number, colHint: string): string {

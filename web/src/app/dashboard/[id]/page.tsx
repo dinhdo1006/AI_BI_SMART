@@ -5,10 +5,8 @@ import { useParams } from "next/navigation";
 import { fetchDashboard } from "@/lib/api";
 import type { DashboardPayload } from "@/lib/types";
 import { InsightBlock } from "@/components/InsightBlock";
-import { DataChart } from "@/components/DataChart";
-import { DataTable } from "@/components/DataTable";
+import { ReportDataView } from "@/components/ReportDataView";
 import { KpiRow } from "@/components/KpiRow";
-import { friendlyLabel } from "@/lib/format";
 
 export default function DashboardPage() {
   const params = useParams();
@@ -57,13 +55,6 @@ export default function DashboardPage() {
       <div className="grid gap-6">
         {dash.reports.map((r, i) => {
           const labels = r.column_labels || {};
-          const renamed = (r.data || []).map((row) => {
-            const out: Record<string, unknown> = {};
-            for (const [k, v] of Object.entries(row)) {
-              out[friendlyLabel(k, labels)] = v;
-            }
-            return out;
-          });
           return (
             <section
               key={i}
@@ -85,17 +76,13 @@ export default function DashboardPage() {
                     period={r.period_comparison}
                     forecast={r.forecast}
                   />
-                  <div className="grid gap-4 xl:grid-cols-[0.95fr_1.15fr]">
-                    <DataTable data={renamed} />
-                    {r.chart_type !== "table" && (
-                      <DataChart
-                        data={r.data}
-                        chartType={r.chart_type}
-                        labels={labels}
-                        forecast={r.forecast}
-                      />
-                    )}
-                  </div>
+                  <ReportDataView
+                    data={r.data}
+                    chartType={r.chart_type}
+                    labels={labels}
+                    forecast={r.forecast}
+                    query={r.query}
+                  />
                 </div>
               )}
               {r.chart_image_base64 && (

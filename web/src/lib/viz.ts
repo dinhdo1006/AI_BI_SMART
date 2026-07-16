@@ -1,3 +1,4 @@
+import { formatAxisLabel } from "./format";
 import type { ChartType } from "./types";
 
 const VIZ_ONLY =
@@ -120,25 +121,48 @@ export function analyzeColumns(data: Record<string, unknown>[]) {
   return { numeric, categorical, dateLike };
 }
 
+function entityColumn(categorical: string[]): string | undefined {
+  return (
+    categorical.find((c) => ENTITY_COL.test(c)) ||
+    categorical.find((c) => !/id$/i.test(c))
+  );
+}
+
+/** Long format: nhiều mã × nhiều ngày (mỗi mã ≥2 phiên). */
+export function isLongFormatTimeSeries(
+  data: Record<string, unknown>[],
+  entity?: string,
+  dateCol?: string,
+): boolean {
+  if (!data.length || !entity || !dateCol) return false;
+  const entities = uniqueCount(data, entity);
+  const dates = uniqueCount(data, dateCol);
+  if (entities < 2 || dates < 2) return false;
+  return data.length / entities >= 1.5;
+}
+
 export function pickChartAxes(data: Record<string, unknown>[]) {
   const { numeric, categorical, dateLike } = analyzeColumns(data);
-  const entity =
-    categorical.find((c) => ENTITY_COL.test(c)) ||
-    categorical.find((c) => !/id$/i.test(c));
+  const entity = entityColumn(categorical);
+  const dateCol = dateLike[0];
 
   let x: string | undefined;
 
-  // So sánh nhiều mã / danh mục: ưu tiên entity, không dùng ngày trùng
-  if (entity && uniqueCount(data, entity) >= 2) {
-    const dateCol = dateLike[0];
+  // Long format entity × ngày → luôn ưu tiên ngày làm trục X
+  if (isLongFormatTimeSeries(data, entity, dateCol)) {
+    x = dateCol;
+  }
+
+  // Snapshot so sánh nhiều mã (không phải chuỗi thời gian dài)
+  if (!x && entity && uniqueCount(data, entity) >= 2) {
     if (!dateCol || uniqueCount(data, dateCol) <= uniqueCount(data, entity)) {
       x = entity;
     }
   }
 
-  // Chuỗi thời gian: ưu tiên ngày
-  if (!x && dateLike[0] && uniqueCount(data, dateLike[0]) >= 3) {
-    x = dateLike[0];
+  // Chuỗi thời gian đơn entity
+  if (!x && dateCol && uniqueCount(data, dateCol) >= 3) {
+    x = dateCol;
   }
 
   if (!x) {
@@ -162,6 +186,274 @@ export function pickChartAxes(data: Record<string, unknown>[]) {
     Boolean(entity && x === entity) && uniqueCount(data, entity!) <= 20;
 
   return { x, yCols, dateLike, isTimeSeries, isComparison, entity };
+}
+
+export const MAX_GROUPBY_SERIES = 12;
+
+export type ChartSeriesMode = "columns" | "groupBy";
+
+export type BarDisplayMode = "group" | "stack100";
+
+export type WaterfallDisplayMode = "ranking" | "bridge" | "composition";
+
+export type ChartPlan = {
+  mode: ChartSeriesMode;
+  x: string;
+  yCols: string[];
+  groupBy?: string;
+  seriesKeys: string[];
+  isTimeSeries: boolean;
+  isComparison: boolean;
+  entity?: string;
+  barMode?: BarDisplayMode;
+  hint?: string;
+};
+
+const STACKED_100_KEYWORDS =
+  /(tỷ\s*trọng|ty\s*trong|cơ\s*cấu|co\s*cau|new\s*vs|repeat|phần\s*trăm|phan\s*tram|100\s*%|stacked|chồng|chong|tỉ\s*lệ|ti\s*le|so\s*sánh\s*tỷ|so\s*sanh\s*ty)/i;
+
+const WATERFALL_BRIDGE_KEYWORDS =
+  /(đóng\s*góp|dong\s*gop|bridge|thác|thac|waterfall|biến\s*động|bien\s*dong|tăng\s*giảm|tang\s*giam|delta)/i;
+
+export function shouldUseStacked100Percent(
+  data: Record<string, unknown>[],
+  yCols: string[],
+  categoryCol: string | undefined,
+  userQuery = "",
+): boolean {
+  if (!data.length || !categoryCol || yCols.length !== 2) return false;
+  if (!STACKED_100_KEYWORDS.test(userQuery)) return false;
+  const positives = data.filter((row) => {
+    const a = Number(row[yCols[0]]);
+    const b = Number(row[yCols[1]]);
+    return Number.isFinite(a) && Number.isFinite(b) && a >= 0 && b >= 0;
+  });
+  return positives.length >= Math.max(1, Math.floor(data.length * 0.7));
+}
+
+/** Gom 1 dòng / entity (kỳ mới nhất nếu có ngày). */
+export function dedupeRowsByEntity(
+  data: Record<string, unknown>[],
+  entityKey: string,
+): Record<string, unknown>[] {
+  if (!data.length) return [];
+  const dateCol = Object.keys(data[0] ?? {}).find((c) =>
+    /date|ngay|trade_date|calc_date|period/i.test(c),
+  );
+  if (dateCol) return dedupeLatestPerEntity(data, entityKey, dateCol);
+
+  const byEntity = new Map<string, Record<string, unknown>>();
+  for (const row of data) {
+    const key = String(row[entityKey] ?? "");
+    if (!byEntity.has(key)) byEntity.set(key, row);
+  }
+  return byEntity.size < data.length ? [...byEntity.values()] : data;
+}
+
+export function detectWaterfallMode(
+  values: number[],
+  userQuery = "",
+): WaterfallDisplayMode {
+  if (values.some((v) => v < 0)) return "bridge";
+  if (WATERFALL_BRIDGE_KEYWORDS.test(userQuery)) return "composition";
+  return "ranking";
+}
+
+/** Chuẩn hóa 2 metric thành % trên từng category (stacked 100%). */
+export function toStack100Rows(
+  rows: Record<string, unknown>[],
+  yCols: [string, string],
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const a = Number(row[yCols[0]]) || 0;
+    const b = Number(row[yCols[1]]) || 0;
+    const sum = a + b;
+    const out = { ...row };
+    out[yCols[0]] = sum > 0 ? (a / sum) * 100 : 0;
+    out[yCols[1]] = sum > 0 ? (b / sum) * 100 : 0;
+    return out;
+  });
+}
+
+function dedupeLatestPerEntity(
+  data: Record<string, unknown>[],
+  entityKey: string,
+  dateKey: string,
+): Record<string, unknown>[] {
+  const byEntity = new Map<string, Record<string, unknown>>();
+  for (const row of data) {
+    const key = String(row[entityKey] ?? "");
+    const prev = byEntity.get(key);
+    if (!prev || String(row[dateKey] ?? "") > String(prev[dateKey] ?? "")) {
+      byEntity.set(key, row);
+    }
+  }
+  return byEntity.size < data.length ? [...byEntity.values()] : data;
+}
+
+function reshapeGroupByTimeSeries(
+  data: Record<string, unknown>[],
+  xKey: string,
+  groupBy: string,
+  yCol: string,
+  seriesKeys: string[],
+): Record<string, unknown>[] {
+  const xValues = [
+    ...new Set(data.map((r) => String(r[xKey] ?? ""))),
+  ].sort((a, b) => a.localeCompare(b));
+
+  return xValues.map((xVal) => {
+    const point: Record<string, unknown> = {
+      name: formatAxisLabel(xVal, xKey),
+    };
+    for (const ent of seriesKeys) {
+      const row = data.find(
+        (r) => String(r[xKey] ?? "") === xVal && String(r[groupBy] ?? "") === ent,
+      );
+      const n = row ? Number(row[yCol]) : NaN;
+      point[ent] = Number.isFinite(n) ? n : null;
+    }
+    return point;
+  });
+}
+
+/** Lập kế hoạch reshape + series trước khi vẽ. */
+export function buildChartPlan(
+  data: Record<string, unknown>[],
+  chartType: ChartType,
+  userQuery = "",
+): ChartPlan | null {
+  if (!data.length) return null;
+
+  const axes = pickChartAxes(data);
+  const { x, yCols, dateLike, isTimeSeries, isComparison, entity } = axes;
+  if (!x || !yCols.length) return null;
+
+  const effective = refineChartType(chartType, data, userQuery);
+  const dateCol = dateLike[0];
+  const longTs = isLongFormatTimeSeries(data, entity, dateCol);
+
+  if (
+    longTs &&
+    entity &&
+    dateCol &&
+    (effective === "line" ||
+      effective === "area" ||
+      effective === "bar" ||
+      effective === "combo")
+  ) {
+    const entities = [
+      ...new Set(data.map((r) => String(r[entity] ?? "")).filter(Boolean)),
+    ].sort();
+    const limited = entities.slice(0, MAX_GROUPBY_SERIES);
+    const truncated = entities.length > MAX_GROUPBY_SERIES;
+    return {
+      mode: "groupBy",
+      x: dateCol,
+      yCols: [yCols[0]],
+      groupBy: entity,
+      seriesKeys: limited,
+      isTimeSeries: true,
+      isComparison: false,
+      entity,
+      hint: truncated
+        ? `Mỗi mã một chuỗi · hiển thị ${limited.length}/${entities.length} mã`
+        : `Mỗi mã một chuỗi (${entities.length} mã)`,
+    };
+  }
+
+  const useStack100 =
+    effective === "bar" &&
+    !isTimeSeries &&
+    shouldUseStacked100Percent(data, yCols, x, userQuery);
+
+  if (useStack100 && yCols.length === 2) {
+    return {
+      mode: "columns",
+      x,
+      yCols: [yCols[0], yCols[1]],
+      seriesKeys: [yCols[0], yCols[1]],
+      isTimeSeries: false,
+      isComparison: true,
+      entity,
+      barMode: "stack100",
+      hint: "Cột chồng 100% — so sánh tỷ trọng 2 thành phần",
+    };
+  }
+
+  if (isComparison && yCols.length >= 2) {
+    return {
+      mode: "columns",
+      x,
+      yCols,
+      seriesKeys: yCols,
+      isTimeSeries,
+      isComparison: true,
+      entity,
+      barMode: "group",
+      hint: `Cột nhóm · so sánh ${yCols.length} chỉ số trên ${uniqueCount(data, x)} mục`,
+    };
+  }
+
+  return {
+    mode: "columns",
+    x,
+    yCols,
+    seriesKeys: yCols,
+    isTimeSeries,
+    isComparison,
+    entity,
+    barMode: effective === "bar" ? "group" : undefined,
+  };
+}
+
+/** Chuẩn hóa dữ liệu theo ChartPlan (sort, dedupe, pivot long→wide). */
+export function reshapeForChart(
+  data: Record<string, unknown>[],
+  plan: ChartPlan,
+): Record<string, unknown>[] {
+  if (plan.mode === "groupBy" && plan.groupBy) {
+    return reshapeGroupByTimeSeries(
+      data,
+      plan.x,
+      plan.groupBy,
+      plan.yCols[0],
+      plan.seriesKeys,
+    );
+  }
+
+  let rows = [...data];
+  const dateCol = rows[0]
+    ? Object.keys(rows[0]).find((c) =>
+        /date|ngay|trade_date|calc_date/i.test(c),
+      )
+    : undefined;
+
+  if (plan.isComparison && plan.entity && dateCol) {
+    rows = dedupeLatestPerEntity(rows, plan.entity, dateCol);
+  }
+
+  if (plan.isTimeSeries) {
+    rows.sort((a, b) =>
+      String(a[plan.x] ?? "").localeCompare(String(b[plan.x] ?? "")),
+    );
+  }
+
+  if (plan.barMode === "stack100" && plan.yCols.length === 2) {
+    const pair = [plan.yCols[0], plan.yCols[1]] as [string, string];
+    rows = toStack100Rows(rows, pair);
+  }
+
+  return rows.map((row) => {
+    const point: Record<string, unknown> = {
+      name: formatAxisLabel(row[plan.x], plan.x),
+    };
+    for (const y of plan.yCols) {
+      const n = Number(row[y]);
+      point[y] = Number.isFinite(n) ? n : null;
+    }
+    return point;
+  });
 }
 
 function colMedianAbs(data: Record<string, unknown>[], col: string): number {
@@ -285,19 +577,6 @@ export function pickHeatmapAxes(
     ) {
       return { mode: "pivot", row, col, value: preferred[0] };
     }
-  }
-
-  if (entity && preferred.length >= 2) {
-    const entityRows = uniqueCount(data, entity);
-    // Nhiều dòng trùng mã + có ngày → gom 1 hàng/mã (trong build), không pivot 1 metric
-    if (data.length > CHART_DENSE_THRESHOLDS.heatmapMetricsMaxRows * 2) {
-      return null;
-    }
-    return {
-      mode: "metrics",
-      row: entity,
-      metrics: preferred.slice(0, 6),
-    };
   }
 
   return null;
@@ -470,17 +749,21 @@ export function pickRadarAxes(
     .sort((a, b) => metricScore(b) - metricScore(a))
     .slice(0, 8);
   if (!entity || metrics.length < 3) return null;
-  if (uniqueCount(data, entity) < 2 || data.length > 12) return null;
+
+  const deduped = dedupeRowsByEntity(data, entity);
+  if (uniqueCount(deduped, entity) < 2 || deduped.length > 12) return null;
   return { entity, metrics };
 }
 
 export type WaterfallAxes = {
   category: string;
   value: string;
+  mode: WaterfallDisplayMode;
 };
 
 export function pickWaterfallAxes(
   data: Record<string, unknown>[],
+  userQuery = "",
 ): WaterfallAxes | null {
   if (!data.length) return null;
   const { numeric, categorical, dateLike } = analyzeColumns(data);
@@ -494,7 +777,15 @@ export function pickWaterfallAxes(
   );
   if (!category || !preferred[0]) return null;
   if (data.length < 3 || data.length > 20) return null;
-  return { category, value: preferred[0] };
+  const values = data.map((r) => {
+    const n = Number(r[preferred[0]]);
+    return Number.isFinite(n) ? n : 0;
+  });
+  return {
+    category,
+    value: preferred[0],
+    mode: detectWaterfallMode(values, userQuery),
+  };
 }
 
 /** Các loại chart render được với data hiện tại. */
@@ -528,6 +819,7 @@ export function compatibleCharts(
 export function refineChartType(
   requested: ChartType,
   data: Record<string, unknown>[],
+  userQuery = "",
 ): ChartType {
   if (requested === "table") return "table";
 
@@ -536,7 +828,9 @@ export function refineChartType(
   }
 
   if (requested === "heatmap") {
-    return pickHeatmapAxes(data) ? "heatmap" : "bar";
+    if (pickHeatmapAxes(data)) return "heatmap";
+    if (pickRadarAxes(data)) return "radar";
+    return "bar";
   }
 
   if (requested === "scatter") {
@@ -552,12 +846,16 @@ export function refineChartType(
   }
 
   if (requested === "waterfall") {
-    return pickWaterfallAxes(data) ? "waterfall" : "bar";
+    return pickWaterfallAxes(data, userQuery) ? "waterfall" : "bar";
   }
 
-  const { yCols } = pickChartAxes(data);
+  const { yCols, isComparison } = pickChartAxes(data);
 
   if (requested === "combo" && yCols.length < 2) return "bar";
+
+  if (requested === "bar" && isComparison && yCols.length >= 3 && pickRadarAxes(data)) {
+    return "radar";
+  }
 
   if (requested === "pie") {
     if (data.length > 12) return pickTreemapAxes(data) ? "treemap" : "bar";
@@ -582,7 +880,9 @@ export function chartTypeHint(
   if (requested === "candlestick" && refined !== "candlestick")
     return "Thiếu cột OHLC — đã chuyển sang đường.";
   if (requested === "heatmap" && refined !== "heatmap")
-    return "Thiếu ma trận phù hợp — đã chuyển sang cột.";
+    return refined === "radar"
+      ? "Heatmap không phù hợp — đã chuyển sang radar (so sánh chỉ số)."
+      : "Thiếu ma trận phù hợp — đã chuyển sang cột.";
   if (requested === "scatter" && refined !== "scatter")
     return "Cần ≥2 cột số — đã chuyển sang cột.";
   if (requested === "treemap" && refined !== "treemap")
@@ -717,4 +1017,137 @@ export function aggregatePieChartData(
     aggregated: true,
     hiddenCount: rest.length,
   };
+}
+
+/** Nhãn tiếng Việt cho loại biểu đồ. */
+export const CHART_TYPE_LABELS: Record<ChartType, string> = {
+  bar: "Biểu đồ cột",
+  line: "Biểu đồ đường",
+  area: "Biểu đồ miền",
+  pie: "Biểu đồ tròn",
+  combo: "Biểu đồ combo",
+  candlestick: "Biểu đồ nến",
+  heatmap: "Heatmap",
+  scatter: "Biểu đồ phân tán",
+  treemap: "Treemap",
+  radar: "Biểu đồ radar",
+  waterfall: "Biểu đồ thác nước",
+  table: "Bảng số liệu",
+};
+
+export type ChartChoiceExplanation = {
+  chartLabel: string;
+  effectiveType: ChartType;
+  message: string;
+  alternatives: { type: ChartType; label: string; reason: string }[];
+};
+
+const ALT_CHART_REASONS: Partial<Record<ChartType, string>> = {
+  line: "Xem xu hướng theo thời gian",
+  bar: "So sánh / xếp hạng trực quan",
+  radar: "So sánh nhiều chỉ số trên vài mã",
+  scatter: "Khám phá tương quan 2 chỉ số",
+  table: "Xem đầy đủ số liệu",
+  treemap: "Nhiều danh mục — ưu tiên theo quy mô",
+  heatmap: "Ma trận mã × thời gian",
+};
+
+/** Giải thích vì sao chọn loại biểu đồ + gợi ý thay thế. */
+export function explainChartChoice(
+  chartType: ChartType,
+  data: Record<string, unknown>[],
+  userQuery = "",
+): ChartChoiceExplanation | null {
+  if (!data.length || chartType === "table") return null;
+
+  const effective = refineChartType(chartType, data, userQuery);
+  const plan = buildChartPlan(data, effective, userQuery);
+  const refineHint = chartTypeHint(chartType, data);
+
+  let message =
+    plan?.hint ||
+    refineHint ||
+    defaultChartMessage(effective, data, plan);
+
+  if (chartType !== effective && refineHint) {
+    message = refineHint;
+  } else if (plan?.hint) {
+    message = `Đã chọn ${CHART_TYPE_LABELS[effective].toLowerCase()} — ${plan.hint}`;
+  } else {
+    message = `Đã chọn ${CHART_TYPE_LABELS[effective].toLowerCase()} — ${message}`;
+  }
+
+  const allowed = compatibleCharts(data);
+  const alternatives: ChartChoiceExplanation["alternatives"] = [];
+  const priority: ChartType[] = [
+    "line",
+    "bar",
+    "radar",
+    "scatter",
+    "table",
+    "treemap",
+    "heatmap",
+  ];
+
+  for (const t of priority) {
+    if (t === effective || !allowed.includes(t)) continue;
+    alternatives.push({
+      type: t,
+      label: CHART_TYPE_LABELS[t],
+      reason: ALT_CHART_REASONS[t] || "Phù hợp với dữ liệu hiện tại",
+    });
+    if (alternatives.length >= 2) break;
+  }
+
+  return {
+    chartLabel: CHART_TYPE_LABELS[effective],
+    effectiveType: effective,
+    message,
+    alternatives,
+  };
+}
+
+function defaultChartMessage(
+  effective: ChartType,
+  data: Record<string, unknown>[],
+  plan: ChartPlan | null,
+): string {
+  if (plan?.mode === "groupBy") return "mỗi mã một chuỗi thời gian";
+  const { isTimeSeries, isComparison, yCols } = pickChartAxes(data);
+  if (effective === "line" && isTimeSeries) return "diễn biến theo thời gian";
+  if (effective === "bar" && isComparison)
+    return `so sánh ${yCols.length} chỉ số`;
+  if (effective === "radar") return "so sánh đa chỉ số giữa các mã";
+  if (effective === "scatter") return "mối quan hệ giữa hai chỉ số";
+  if (effective === "heatmap") return "ma trận giá trị theo mã và thời gian";
+  return "phù hợp với hình dạng dữ liệu";
+}
+
+const PIN_COL =
+  /^(ticker|symbol|ma_cp|ma\s*cp|trade_date|calc_date|date|ngay|company_name|short_name)$/i;
+
+/** Sắp xếp cột bảng: pin entity/ngày trước, metric quan trọng sau. */
+export function orderTableColumns(cols: string[]): {
+  ordered: string[];
+  pinned: string[];
+} {
+  const pinned = cols.filter((c) => PIN_COL.test(c));
+  const rest = cols.filter((c) => !pinned.includes(c));
+  rest.sort((a, b) => metricScore(b) - metricScore(a));
+  return { ordered: [...pinned, ...rest], pinned };
+}
+
+/** Sort mặc định cho bảng số liệu. */
+export function pickDefaultTableSort(
+  data: Record<string, unknown>[],
+): { col: string; dir: "asc" | "desc" } | null {
+  if (!data.length) return null;
+  const { yCols, entity, isTimeSeries, dateLike } = pickChartAxes(data);
+  if (isTimeSeries && dateLike[0]) {
+    return { col: dateLike[0], dir: "desc" };
+  }
+  if (yCols[0]) return { col: yCols[0], dir: "desc" };
+  if (entity) return { col: entity, dir: "asc" };
+  const first = Object.keys(data[0])[0];
+  return first ? { col: first, dir: "asc" } : null;
 }

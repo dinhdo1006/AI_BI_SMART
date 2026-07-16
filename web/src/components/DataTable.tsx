@@ -1,11 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { formatNumber } from "@/lib/format";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+} from "lucide-react";
+import { formatNumber, friendlyLabel } from "@/lib/format";
+import { orderTableColumns, pickDefaultTableSort } from "@/lib/viz";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
+const DEFAULT_MAX_HEIGHT = 480;
 
 type SortDir = "asc" | "desc" | null;
 
@@ -19,16 +28,33 @@ function compareValues(a: unknown, b: unknown): number {
   return String(a).localeCompare(String(b), "vi", { numeric: true });
 }
 
-export function DataTable({ data }: { data: Record<string, unknown>[] }) {
+export function DataTable({
+  data,
+  columnLabels,
+  maxHeight = DEFAULT_MAX_HEIGHT,
+}: {
+  data: Record<string, unknown>[];
+  columnLabels?: Record<string, string>;
+  maxHeight?: number;
+}) {
+  const defaultSort = useMemo(() => pickDefaultTableSort(data), [data]);
+  const { ordered: cols, pinned } = useMemo(() => {
+    const raw = data.length ? Object.keys(data[0]) : [];
+    return orderTableColumns(raw);
+  }, [data]);
+
   const [search, setSearch] = useState("");
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>(null);
+  const [sortCol, setSortCol] = useState<string | null>(
+    defaultSort?.col ?? null,
+  );
+  const [sortDir, setSortDir] = useState<SortDir>(defaultSort?.dir ?? null);
   const [page, setPage] = useState(0);
 
-  const cols = useMemo(
-    () => (data.length ? Object.keys(data[0]) : []),
-    [data],
-  );
+  useEffect(() => {
+    setSortCol(defaultSort?.col ?? null);
+    setSortDir(defaultSort?.dir ?? null);
+    setPage(0);
+  }, [data, defaultSort?.col, defaultSort?.dir]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -69,6 +95,8 @@ export function DataTable({ data }: { data: Record<string, unknown>[] }) {
 
   if (!data.length) return null;
 
+  const pinnedSet = new Set(pinned);
+
   return (
     <div className="overflow-hidden rounded-xl border border-line">
       <div className="flex items-center gap-2 border-b border-line bg-foam/60 px-3 py-2">
@@ -88,14 +116,32 @@ export function DataTable({ data }: { data: Record<string, unknown>[] }) {
         </span>
       </div>
 
-      <div className="max-h-[320px] overflow-auto scrollbar-thin">
+      <div
+        className="overflow-auto scrollbar-thin"
+        style={{ maxHeight }}
+      >
         <table className="w-full min-w-[420px] border-collapse text-left text-[13px]">
-          <thead className="sticky top-0 bg-mist/95 backdrop-blur">
+          <thead className="sticky top-0 z-20 bg-mist/95 backdrop-blur">
             <tr>
-              {cols.map((c) => {
+              {cols.map((c, colIdx) => {
                 const active = sortCol === c;
+                const isPinned = pinnedSet.has(c);
+                const left =
+                  isPinned && colIdx > 0
+                    ? cols
+                        .slice(0, colIdx)
+                        .filter((x) => pinnedSet.has(x)).length * 112
+                    : 0;
                 return (
-                  <th key={c} className="border-b border-line px-1 py-1">
+                  <th
+                    key={c}
+                    className={cn(
+                      "border-b border-line px-1 py-1",
+                      isPinned &&
+                        "sticky z-30 min-w-[88px] bg-mist/95 shadow-[2px_0_6px_-2px_rgba(11,31,42,0.08)]",
+                    )}
+                    style={isPinned ? { left } : undefined}
+                  >
                     <button
                       type="button"
                       onClick={() => toggleSort(c)}
@@ -104,7 +150,9 @@ export function DataTable({ data }: { data: Record<string, unknown>[] }) {
                         active ? "text-teal" : "text-ink-soft",
                       )}
                     >
-                      <span className="truncate">{c}</span>
+                      <span className="truncate">
+                        {friendlyLabel(c, columnLabels)}
+                      </span>
                       {active && sortDir === "asc" ? (
                         <ArrowUp className="h-3 w-3 shrink-0" />
                       ) : active && sortDir === "desc" ? (
@@ -134,14 +182,40 @@ export function DataTable({ data }: { data: Record<string, unknown>[] }) {
                   key={safePage * PAGE_SIZE + i}
                   className="border-b border-line/70 odd:bg-white even:bg-foam/50"
                 >
-                  {cols.map((c) => {
+                  {cols.map((c, colIdx) => {
                     const v = row[c];
+                    const isChange =
+                      /change_percent|pct_change|thay_doi|change/i.test(c);
+                    const isPinned = pinnedSet.has(c);
+                    const left =
+                      isPinned && colIdx > 0
+                        ? cols
+                            .slice(0, colIdx)
+                            .filter((x) => pinnedSet.has(x)).length * 112
+                        : 0;
                     const cell =
                       typeof v === "number"
                         ? formatNumber(v, c)
                         : String(v ?? "—");
                     return (
-                      <td key={c} className="px-3 py-2 text-ink-soft">
+                      <td
+                        key={c}
+                        className={cn(
+                          "px-3 py-2 text-ink-soft",
+                          isChange &&
+                            typeof v === "number" &&
+                            (v > 0
+                              ? "text-emerald-700"
+                              : v < 0
+                                ? "text-red-700"
+                                : ""),
+                          isPinned &&
+                            "sticky z-10 bg-inherit shadow-[2px_0_6px_-2px_rgba(11,31,42,0.06)]",
+                          isPinned && i % 2 === 0 && "bg-white",
+                          isPinned && i % 2 === 1 && "bg-foam/50",
+                        )}
+                        style={isPinned ? { left } : undefined}
+                      >
                         {cell}
                       </td>
                     );
@@ -156,6 +230,13 @@ export function DataTable({ data }: { data: Record<string, unknown>[] }) {
       <div className="flex items-center justify-between gap-2 border-t border-line bg-foam/70 px-3 py-1.5">
         <p className="text-[11px] text-ink-soft/65">
           Trang {safePage + 1}/{pageCount} · {PAGE_SIZE} dòng/trang
+          {defaultSort?.col && (
+            <span className="text-ink-soft/45">
+              {" "}
+              · sort{" "}
+              {friendlyLabel(defaultSort.col, columnLabels)}
+            </span>
+          )}
         </p>
         <div className="flex items-center gap-1">
           <button

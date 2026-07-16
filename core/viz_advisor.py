@@ -433,12 +433,35 @@ def suggest_chart_from_data(
         return "line"
 
     entity = _entity_col(categorical)
+    date_col = date_like[0] if date_like else None
 
-    # Nhiều metric × nhiều mã → heatmap hoặc radar
-    if entity and len(numeric) >= 3 and len(data) >= 3 and not date_like:
-        if len(data) <= 8 and len(numeric) >= 3:
+    # Long format: nhiều mã × nhiều ngày → đường (multi-series)
+    if entity and date_col and numeric:
+        entities = len({row.get(entity) for row in data if row.get(entity) is not None})
+        dates = len({row.get(date_col) for row in data if row.get(date_col) is not None})
+        if entities >= 2 and dates >= 2 and len(data) / max(entities, 1) >= 1.5:
+            return "line"
+
+    # Stacked 100% khi user hỏi tỷ trọng/cơ cấu và có 2 metric
+    if entity and len(numeric) == 2 and categorical and not date_like:
+        x_col = entity or categorical[0]
+        if should_use_stacked_100_percent(data, user_query, numeric, x_col):
+            return "bar"
+
+    # Ma trận mã × ngày × 1 metric → heatmap (chỉ pivot thật)
+    if entity and date_col and len(numeric) >= 1:
+        entities = len({row.get(entity) for row in data if row.get(entity) is not None})
+        dates = len({row.get(date_col) for row in data if row.get(date_col) is not None})
+        if entities >= 2 and dates >= 3 and len(data) >= 6:
+            if re.search(r"heatmap|nhiệt|nhiet|ma\s*trận|ma\s*tran", user_query or "", re.I):
+                return "heatmap"
+
+    # Nhiều metric × vài mã (snapshot) → radar hoặc cột nhóm, không heatmap
+    if entity and len(numeric) >= 3 and not date_like:
+        unique_entities = len({row.get(entity) for row in data if row.get(entity) is not None})
+        if unique_entities <= 8:
             return "radar"
-        return "heatmap"
+        return "bar"
 
     # 2+ cột số, nhiều điểm → scatter (tương quan)
     if len(numeric) >= 2 and len(data) >= 5 and not date_like:

@@ -6,6 +6,16 @@ export function friendlyLabel(
   return col.replace(/_/g, " ");
 }
 
+/** Rút gọn nhãn trục (ngày ISO, tên dài). */
+export function formatAxisLabel(value: unknown, col: string): string {
+  if (value == null) return "";
+  const s = String(value);
+  if (/date|ngay/i.test(col) && /^\d{4}-\d{2}-\d{2}/.test(s)) {
+    return s.slice(0, 10);
+  }
+  return s.length > 18 ? `${s.slice(0, 16)}…` : s;
+}
+
 export function formatNumber(value: unknown, colName = ""): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return value == null ? "—" : String(value);

@@ -19,13 +19,12 @@ import {
 } from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
-import { chartTypeHint, compatibleCharts } from "@/lib/viz";
+import { compatibleCharts } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { InsightBlock } from "@/components/InsightBlock";
 import { KpiRow } from "@/components/KpiRow";
-import { DataChart } from "@/components/DataChart";
-import { DataTable } from "@/components/DataTable";
+import { ReportDataView } from "@/components/ReportDataView";
 import { ArticlePanel } from "@/components/ArticlePanel";
 
 const CHART_OPTIONS: { value: ChartType; label: string }[] = [
@@ -109,10 +108,6 @@ export function ReportCard({
     (payload.data?.length || 0) > 0 && payload.status === "success";
   const confidence = confidenceBadge(payload.sql_source);
   const voted = msg?.feedback ?? null;
-  const hint = useMemo(
-    () => (hasData ? chartTypeHint(chartType, payload.data) : null),
-    [chartType, payload.data, hasData],
-  );
   const allowedCharts = useMemo(
     () =>
       hasData
@@ -373,11 +368,6 @@ export function ReportCard({
                 })}
               </select>
             </label>
-            {hint && (
-              <p className="max-w-xs text-right text-[10px] text-copper">
-                {hint}
-              </p>
-            )}
           </div>
         )}
       </div>
@@ -397,25 +387,15 @@ export function ReportCard({
         )}
 
         {hasData && (
-          <div
-            className={cn(
-              "grid gap-4",
-              chartType === "table"
-                ? "grid-cols-1"
-                : "grid-cols-1 xl:grid-cols-[0.95fr_1.15fr]",
-            )}
-          >
-            <DataTable data={renamed} />
-            {chartType !== "table" && (
-              <DataChart
-                data={payload.data}
-                chartType={chartType}
-                labels={labels}
-                forecast={payload.forecast}
-                onReady={onChartReady}
-              />
-            )}
-          </div>
+          <ReportDataView
+            data={payload.data}
+            chartType={chartType}
+            labels={labels}
+            forecast={payload.forecast}
+            query={payload.query}
+            onChartReady={onChartReady}
+            onChartChange={(t) => void onChartChange(t)}
+          />
         )}
 
         {payload.status === "empty" && (
