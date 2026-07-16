@@ -116,6 +116,10 @@ _CHART_VIZ_QUERIES: dict[str, str] = {
     "area": "Vẽ biểu đồ miền (area) cho tôi",
     "combo": "Vẽ biểu đồ combo kết hợp cho tôi",
     "pie": "Vẽ biểu đồ tròn (pie) cho tôi",
+    "candlestick": "Vẽ biểu đồ nến (candlestick) cho tôi",
+    "heatmap": "Vẽ biểu đồ nhiệt (heatmap) cho tôi",
+    "scatter": "Vẽ biểu đồ phân tán (scatter) cho tôi",
+    "treemap": "Vẽ biểu đồ cây (treemap) cho tôi",
     "table": "Chỉ hiển thị bảng, không cần biểu đồ",
 }
 
@@ -1569,7 +1573,7 @@ def _figure_for_word_export(
     api_chart = payload.get("chart_type") or "bar"
     if api_chart not in fallback_types and api_chart != "table":
         fallback_types.append(api_chart)
-    for alt in ("bar", "line", "pie", "area", "combo"):
+    for alt in ("bar", "line", "pie", "area", "combo", "heatmap", "scatter", "treemap"):
         if alt not in fallback_types:
             fallback_types.append(alt)
 

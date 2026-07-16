@@ -10,9 +10,16 @@ import type { ChartType, Forecast } from "@/lib/types";
 import { formatNumber, friendlyLabel } from "@/lib/format";
 import {
   detectOhlcColumns,
+  movingAverage,
   pickChartAxes,
+  pickHeatmapAxes,
+  pickScatterAxes,
+  pickTreemapAxes,
   refineChartType,
   shouldUseHorizontalBar,
+  type HeatmapAxes,
+  type ScatterAxes,
+  type TreemapAxes,
 } from "@/lib/viz";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), {
@@ -87,9 +94,34 @@ export function DataChart({
     axes.isTimeSeries &&
     (effectiveType === "line" || effectiveType === "area");
 
+  const heatmapAxes = useMemo(
+    () =>
+      effectiveType === "heatmap" ? pickHeatmapAxes(data) : null,
+    [effectiveType, data],
+  );
+  const scatterAxes = useMemo(
+    () =>
+      effectiveType === "scatter" ? pickScatterAxes(data) : null,
+    [effectiveType, data],
+  );
+  const treemapAxes = useMemo(
+    () =>
+      effectiveType === "treemap" ? pickTreemapAxes(data) : null,
+    [effectiveType, data],
+  );
+
   const option = useMemo(() => {
     if (effectiveType === "candlestick" && ohlc) {
       return buildCandlestickOption(data, ohlc);
+    }
+    if (effectiveType === "heatmap" && heatmapAxes) {
+      return buildHeatmapOption(data, heatmapAxes, labels);
+    }
+    if (effectiveType === "scatter" && scatterAxes) {
+      return buildScatterOption(data, scatterAxes, labels);
+    }
+    if (effectiveType === "treemap" && treemapAxes) {
+      return buildTreemapOption(data, treemapAxes, labels);
     }
     if (!x || !yCols.length) return null;
     return buildOption({
@@ -100,6 +132,7 @@ export function DataChart({
       horizontal,
       xLabel: friendlyLabel(x, labels),
       forecast: canShowForecast ? forecast : null,
+      showMovingAvg: axes.isTimeSeries,
     });
   }, [
     effectiveType,
@@ -112,6 +145,10 @@ export function DataChart({
     data,
     canShowForecast,
     forecast,
+    heatmapAxes,
+    scatterAxes,
+    treemapAxes,
+    axes.isTimeSeries,
   ]);
 
   const getPngBase64 = useCallback(() => {
@@ -154,7 +191,37 @@ export function DataChart({
     );
   }
 
-  if ((!x || !yCols.length) && effectiveType !== "candlestick") {
+  if (effectiveType === "heatmap" && !heatmapAxes) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Cần ma trận (danh mục × ngày/metric) để vẽ heatmap
+      </div>
+    );
+  }
+
+  if (effectiveType === "scatter" && !scatterAxes) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Cần ≥2 cột số để vẽ biểu đồ phân tán
+      </div>
+    );
+  }
+
+  if (effectiveType === "treemap" && !treemapAxes) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Cần danh mục + cột số để vẽ treemap
+      </div>
+    );
+  }
+
+  const advancedOnly =
+    effectiveType === "candlestick" ||
+    effectiveType === "heatmap" ||
+    effectiveType === "scatter" ||
+    effectiveType === "treemap";
+
+  if ((!x || !yCols.length) && !advancedOnly) {
     return (
       <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
         Không đủ cột số để vẽ biểu đồ
@@ -170,15 +237,22 @@ export function DataChart({
     );
   }
 
-  const height = horizontal ? 340 : 310;
-  const title =
-    effectiveType === "candlestick" && ohlc
-      ? `Nến · ${friendlyLabel(ohlc.close || "close", labels)}`
-      : `${friendlyLabel(x || "", labels)}${
-          yCols.length === 1
-            ? ` · ${friendlyLabel(yCols[0], labels)}`
-            : ` · ${yCols.map((c) => friendlyLabel(c, labels)).join(" · ")}`
-        }`;
+  const height =
+    effectiveType === "treemap" || effectiveType === "heatmap"
+      ? 380
+      : horizontal
+        ? 340
+        : 310;
+  const title = chartTitle({
+    effectiveType,
+    ohlc,
+    x,
+    yCols,
+    labels,
+    heatmapAxes,
+    scatterAxes,
+    treemapAxes,
+  });
 
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-gradient-to-br from-white via-foam/80 to-mist/40 p-3 shadow-sm">
@@ -206,6 +280,365 @@ export function DataChart({
       />
     </div>
   );
+}
+
+function chartTitle({
+  effectiveType,
+  ohlc,
+  x,
+  yCols,
+  labels,
+  heatmapAxes,
+  scatterAxes,
+  treemapAxes,
+}: {
+  effectiveType: ChartType;
+  ohlc: ReturnType<typeof detectOhlcColumns>;
+  x?: string;
+  yCols: string[];
+  labels?: Record<string, string>;
+  heatmapAxes: HeatmapAxes | null;
+  scatterAxes: ScatterAxes | null;
+  treemapAxes: TreemapAxes | null;
+}): string {
+  if (effectiveType === "candlestick" && ohlc) {
+    return `Nến · ${friendlyLabel(ohlc.close || "close", labels)}`;
+  }
+  if (effectiveType === "heatmap" && heatmapAxes) {
+    if (heatmapAxes.mode === "pivot") {
+      return `Heatmap · ${friendlyLabel(heatmapAxes.value, labels)}`;
+    }
+    return `Heatmap · ${heatmapAxes.metrics
+      .slice(0, 3)
+      .map((m) => friendlyLabel(m, labels))
+      .join(" · ")}`;
+  }
+  if (effectiveType === "scatter" && scatterAxes) {
+    return `${friendlyLabel(scatterAxes.x, labels)} × ${friendlyLabel(scatterAxes.y, labels)}`;
+  }
+  if (effectiveType === "treemap" && treemapAxes) {
+    return `Treemap · ${friendlyLabel(treemapAxes.value, labels)}`;
+  }
+  return `${friendlyLabel(x || "", labels)}${
+    yCols.length === 1
+      ? ` · ${friendlyLabel(yCols[0], labels)}`
+      : ` · ${yCols.map((c) => friendlyLabel(c, labels)).join(" · ")}`
+  }`;
+}
+
+function buildHeatmapOption(
+  data: Record<string, unknown>[],
+  axes: HeatmapAxes,
+  labels?: Record<string, string>,
+): EChartsOption {
+  let rowLabels: string[] = [];
+  let colLabels: string[] = [];
+  let cells: [number, number, number | null][] = [];
+  let valueHint = "";
+
+  if (axes.mode === "pivot") {
+    valueHint = axes.value;
+    const rowSet = Array.from(
+      new Set(data.map((r) => String(r[axes.row] ?? ""))),
+    );
+    const colSet = Array.from(
+      new Set(data.map((r) => formatAxisLabel(r[axes.col], axes.col))),
+    );
+    rowLabels = rowSet.slice(0, 40);
+    colLabels = colSet.slice(0, 40);
+    const lookup = new Map<string, number>();
+    for (const r of data) {
+      const rk = String(r[axes.row] ?? "");
+      const ck = formatAxisLabel(r[axes.col], axes.col);
+      const n = Number(r[axes.value]);
+      if (Number.isFinite(n)) lookup.set(`${rk}||${ck}`, n);
+    }
+    cells = [];
+    rowLabels.forEach((row, yi) => {
+      colLabels.forEach((col, xi) => {
+        const v = lookup.get(`${row}||${col}`);
+        cells.push([xi, yi, v ?? null]);
+      });
+    });
+  } else {
+    valueHint = axes.metrics[0] || "";
+    const rows = data.slice(0, 40);
+    rowLabels = rows.map((r) => String(r[axes.row] ?? ""));
+    colLabels = axes.metrics.map((m) => friendlyLabel(m, labels));
+    cells = [];
+    rows.forEach((r, yi) => {
+      axes.metrics.forEach((m, xi) => {
+        const n = Number(r[m]);
+        cells.push([xi, yi, Number.isFinite(n) ? n : null]);
+      });
+    });
+  }
+
+  const nums = cells
+    .map((c) => c[2])
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  const vmin = nums.length ? Math.min(...nums) : 0;
+  const vmax = nums.length ? Math.max(...nums) : 1;
+
+  return {
+    animationDuration: 700,
+    tooltip: {
+      position: "top",
+      backgroundColor: "rgba(255,255,255,0.96)",
+      borderColor: "rgba(11,31,42,0.1)",
+      borderWidth: 1,
+      textStyle: { color: "#0b1f2a", fontSize: 12 },
+      formatter: (params) => {
+        const p = params as {
+          value?: [number, number, number | null];
+          marker?: string;
+        };
+        const v = p.value;
+        if (!v) return "";
+        const col = colLabels[v[0]] ?? "";
+        const row = rowLabels[v[1]] ?? "";
+        return `${p.marker || ""} <b>${row}</b> · ${col}<br/>${formatNumber(v[2], valueHint)}`;
+      },
+    },
+    grid: {
+      left: 12,
+      right: 72,
+      top: 16,
+      bottom: 48,
+      containLabel: true,
+    },
+    xAxis: {
+      type: "category",
+      data: colLabels,
+      splitArea: { show: true },
+      axisLabel: {
+        color: "#5b6b73",
+        fontSize: 10,
+        rotate: colLabels.length > 6 ? 30 : 0,
+        interval: 0,
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: "category",
+      data: rowLabels,
+      splitArea: { show: true },
+      axisLabel: { color: "#5b6b73", fontSize: 11 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    visualMap: {
+      min: vmin,
+      max: vmax === vmin ? vmin + 1 : vmax,
+      calculable: true,
+      orient: "vertical",
+      right: 4,
+      top: "middle",
+      itemWidth: 12,
+      itemHeight: 100,
+      textStyle: { color: "#5b6b73", fontSize: 10 },
+      inRange: {
+        color: ["#ecfdf5", "#5eead4", "#0f766e", "#134e4a"],
+      },
+    },
+    series: [
+      {
+        type: "heatmap",
+        data: cells,
+        label: {
+          show: cells.length <= 48,
+          fontSize: 9,
+          color: "#0b1f2a",
+          formatter: (p: CallbackDataParams) => {
+            const v = Array.isArray(p.value) ? p.value[2] : p.value;
+            if (v == null || !Number.isFinite(Number(v))) return "";
+            return compactTick(Number(v), valueHint);
+          },
+        },
+        emphasis: {
+          itemStyle: { shadowBlur: 8, shadowColor: "rgba(0,0,0,0.2)" },
+        },
+      },
+    ],
+  };
+}
+
+function buildScatterOption(
+  data: Record<string, unknown>[],
+  axes: ScatterAxes,
+  labels?: Record<string, string>,
+): EChartsOption {
+  const points = data
+    .map((r) => {
+      const x = Number(r[axes.x]);
+      const y = Number(r[axes.y]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      const sizeRaw = axes.size != null ? Number(r[axes.size]) : NaN;
+      const size = Number.isFinite(sizeRaw)
+        ? Math.max(8, Math.min(36, Math.sqrt(Math.abs(sizeRaw)) / 2 + 8))
+        : 12;
+      const name = axes.label ? String(r[axes.label] ?? "") : "";
+      return { value: [x, y, size], name };
+    })
+    .filter(Boolean) as { value: number[]; name: string }[];
+
+  return {
+    color: COLORS,
+    animationDuration: 700,
+    grid: { left: 16, right: 24, top: 40, bottom: 48, containLabel: true },
+    tooltip: {
+      trigger: "item",
+      backgroundColor: "rgba(255,255,255,0.96)",
+      borderColor: "rgba(11,31,42,0.1)",
+      borderWidth: 1,
+      textStyle: { color: "#0b1f2a", fontSize: 12 },
+      formatter: (params) => {
+        const p = params as {
+          name?: string;
+          value?: number[];
+          marker?: string;
+        };
+        const v = p.value || [];
+        const title = p.name ? `<b>${p.name}</b><br/>` : "";
+        return `${p.marker || ""} ${title}${friendlyLabel(axes.x, labels)}: <b>${formatNumber(v[0], axes.x)}</b><br/>${friendlyLabel(axes.y, labels)}: <b>${formatNumber(v[1], axes.y)}</b>`;
+      },
+    },
+    legend: legendOpt(labels),
+    xAxis: {
+      type: "value",
+      name: friendlyLabel(axes.x, labels),
+      nameLocation: "middle",
+      nameGap: 28,
+      nameTextStyle: { color: "#5b6b73", fontSize: 11 },
+      scale: true,
+      axisLabel: {
+        color: "#5b6b73",
+        fontSize: 11,
+        formatter: (v: number) => compactTick(v, axes.x),
+      },
+      splitLine: {
+        lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      name: friendlyLabel(axes.y, labels),
+      nameTextStyle: { color: "#5b6b73", fontSize: 11 },
+      scale: true,
+      axisLabel: {
+        color: "#5b6b73",
+        fontSize: 11,
+        formatter: (v: number) => compactTick(v, axes.y),
+      },
+      splitLine: {
+        lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        name: axes.label
+          ? friendlyLabel(axes.label, labels)
+          : `${friendlyLabel(axes.x, labels)} / ${friendlyLabel(axes.y, labels)}`,
+        type: "scatter",
+        data: points,
+        symbolSize: (val: number | number[]) =>
+          Array.isArray(val) ? Number(val[2]) || 12 : 12,
+        itemStyle: {
+          color: hexAlpha(COLORS[0], 0.75),
+          borderColor: COLORS[0],
+          borderWidth: 1,
+        },
+        emphasis: {
+          itemStyle: { color: COLORS[0], shadowBlur: 10 },
+        },
+        label:
+          points.length <= 20
+            ? {
+                show: true,
+                formatter: (p: CallbackDataParams) => String(p.name || ""),
+                position: "top",
+                fontSize: 10,
+                color: "#5b6b73",
+              }
+            : undefined,
+      },
+    ],
+  };
+}
+
+function buildTreemapOption(
+  data: Record<string, unknown>[],
+  axes: TreemapAxes,
+  labels?: Record<string, string>,
+): EChartsOption {
+  const nodes = data
+    .map((r, i) => {
+      const n = Number(r[axes.value]);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return {
+        name: String(r[axes.name] ?? `#${i + 1}`),
+        value: n,
+        itemStyle: { color: COLORS[i % COLORS.length] },
+      };
+    })
+    .filter(Boolean) as {
+    name: string;
+    value: number;
+    itemStyle: { color: string };
+  }[];
+
+  nodes.sort((a, b) => b.value - a.value);
+
+  return {
+    animationDuration: 700,
+    tooltip: {
+      formatter: (params) => {
+        const p = params as {
+          name?: string;
+          value?: number;
+          marker?: string;
+        };
+        return `${p.marker || ""} <b>${p.name}</b><br/>${formatNumber(p.value, axes.value)}`;
+      },
+    },
+    series: [
+      {
+        type: "treemap",
+        width: "100%",
+        height: "100%",
+        roam: false,
+        nodeClick: false,
+        breadcrumb: { show: false },
+        label: {
+          show: true,
+          formatter: "{b}\n{c}",
+          fontSize: 11,
+          color: "#fff",
+        },
+        upperLabel: { show: false },
+        itemStyle: {
+          borderColor: "#fff",
+          borderWidth: 2,
+          gapWidth: 2,
+        },
+        levels: [
+          {
+            itemStyle: {
+              borderColor: "#fff",
+              borderWidth: 2,
+              gapWidth: 2,
+            },
+          },
+        ],
+        data: nodes,
+      },
+    ],
+  };
 }
 
 function buildCandlestickOption(
@@ -294,6 +727,7 @@ function buildOption({
   horizontal,
   xLabel,
   forecast,
+  showMovingAvg = false,
 }: {
   type: ChartType;
   chartData: Record<string, unknown>[];
@@ -302,6 +736,7 @@ function buildOption({
   horizontal: boolean;
   xLabel: string;
   forecast?: Forecast | null;
+  showMovingAvg?: boolean;
 }): EChartsOption {
   const forecastPts = forecast?.points || [];
   const forecastMetric = forecast?.metric;
@@ -403,6 +838,7 @@ function buildOption({
     showLabels,
     isCombo,
     forecast: useForecast ? forecast : null,
+    showMovingAvg: showMovingAvg && !horizontal && !isCombo,
   });
 
   if (horizontal) {
@@ -510,6 +946,7 @@ function buildSeries({
   showLabels,
   isCombo,
   forecast,
+  showMovingAvg = false,
 }: {
   kind: ChartType | "combo";
   chartData: Record<string, unknown>[];
@@ -519,6 +956,7 @@ function buildSeries({
   showLabels: boolean;
   isCombo: boolean;
   forecast?: Forecast | null;
+  showMovingAvg?: boolean;
 }): SeriesOption[] {
   const fcPts = forecast?.points || [];
   const fcMetric = forecast?.metric;
@@ -653,6 +1091,24 @@ function buildSeries({
         lineStyle: { width: 2.2, type: "dashed", color },
         itemStyle: { color },
         z: 5,
+      });
+    }
+
+    // MA overlay trên chuỗi thời gian (đủ điểm)
+    if (showMovingAvg && histLen >= 10 && !fcLen) {
+      const maWindow = histLen >= 30 ? 10 : 5;
+      const primary = yCols[0];
+      const hist = chartData.map((d) => d[primary] as number | null);
+      const ma = movingAverage(hist, maWindow);
+      series.push({
+        name: `MA${maWindow}`,
+        type: "line",
+        data: ma,
+        smooth: true,
+        symbol: "none",
+        lineStyle: { width: 2, type: "dashed", color: "#b45309" },
+        itemStyle: { color: "#b45309" },
+        z: 4,
       });
     }
 

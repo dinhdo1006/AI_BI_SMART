@@ -5,7 +5,18 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-ChartType = Literal["bar", "pie", "line", "area", "combo", "candlestick", "table"]
+ChartType = Literal[
+    "bar",
+    "pie",
+    "line",
+    "area",
+    "combo",
+    "candlestick",
+    "heatmap",
+    "scatter",
+    "treemap",
+    "table",
+]
 
 # Ưu tiên: area/line/bar trước pie — tránh "miền" bị nhầm hoặc auto-pie
 _CHART_PATTERNS: list[tuple[ChartType, re.Pattern[str]]] = [
@@ -14,6 +25,30 @@ _CHART_PATTERNS: list[tuple[ChartType, re.Pattern[str]]] = [
         re.compile(
             r"(biểu\s*đồ|bieu\s*do).{0,30}(nến|nen|candle)|"
             r"candlestick|ohlc|đồ\s*thị\s*nến|do\s*thi\s*nen",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "heatmap",
+        re.compile(
+            r"(biểu\s*đồ|bieu\s*do).{0,30}(nhiệt|nhiet|heatmap)|"
+            r"heatmap|heat\s*map|ma\s*trận|ma\s*tran",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "scatter",
+        re.compile(
+            r"(biểu\s*đồ|bieu\s*do).{0,30}(phân\s*tán|phan\s*tan|scatter)|"
+            r"scatter|tương\s*quan|tuong\s*quan|xy\s*plot",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "treemap",
+        re.compile(
+            r"(biểu\s*đồ|bieu\s*do).{0,30}(cây|cay|treemap|khối|khoi)|"
+            r"treemap|tree\s*map|ô\s*vuông|o\s*vuong",
             re.IGNORECASE,
         ),
     ),
@@ -73,7 +108,8 @@ _CHART_PATTERNS: list[tuple[ChartType, re.Pattern[str]]] = [
 _VIZ_ONLY: re.Pattern[str] = re.compile(
     r"(làm|lam|vẽ|ve|đổi|doi|chuyển|chuyen|cho\s+tôi|cho\s+toi|tạo|tao|hiển\s*thị|hien\s*thi|"
     r"xem).{0,60}"
-    r"(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|pie|bar|line|area|combo)",
+    r"(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|"
+    r"pie|bar|line|area|combo|heatmap|scatter|treemap|nhiệt|nhiet|phân\s*tán|phan\s*tan|cây|cay)",
     re.IGNORECASE,
 )
 
@@ -91,7 +127,8 @@ _LIST_ONLY: re.Pattern[str] = re.compile(
 
 _COMPARE_OR_CHART: re.Pattern[str] = re.compile(
     r"(so\s*sánh|so\s*sanh|top|trung\s*bình|trung\s*binh|biểu\s*đồ|bieu\s*do|"
-    r"vẽ|ve|chart|tỷ\s*trọng|ty\s*trong|cơ\s*cấu|co\s*cau|xu\s*hướng|xu\s*huong)",
+    r"vẽ|ve|chart|tỷ\s*trọng|ty\s*trong|cơ\s*cấu|co\s*cau|xu\s*hướng|xu\s*huong|"
+    r"heatmap|scatter|treemap|nhiệt|nhiet|phân\s*tán|phan\s*tan)",
     re.IGNORECASE,
 )
 
@@ -263,14 +300,43 @@ def suggest_chart_from_data(
     if date_like and numeric:
         return "line"
 
-    # Cơ cấu / tỷ trọng với ít nhãn → pie
     q_lower = user_query.lower()
-    if any(k in q_lower for k in ("cơ cấu", "co cau", "tỷ trọng", "ty trong", "cấu trúc", "cau truc")):
-        if categorical and len(data) <= 8:
-            return "pie"
+
+    # Tương quan / phân tán
+    if any(
+        k in q_lower
+        for k in ("tương quan", "tuong quan", "phân tán", "phan tan", "scatter")
+    ):
+        if len(numeric) >= 2:
+            return "scatter"
+
+    # Ma trận / heatmap
+    if any(k in q_lower for k in ("heatmap", "nhiệt", "nhiet", "ma trận", "ma tran")):
+        if (len(categorical) >= 2 or (categorical and date_like)) and numeric:
+            return "heatmap"
+        if categorical and len(numeric) >= 2:
+            return "heatmap"
+
+    # Cơ cấu / tỷ trọng: ít nhãn → pie, nhiều → treemap
+    if any(
+        k in q_lower
+        for k in ("cơ cấu", "co cau", "tỷ trọng", "ty trong", "cấu trúc", "cau truc", "treemap")
+    ):
+        if categorical and numeric:
+            return "pie" if len(data) <= 8 else "treemap"
+
     # 2 chỉ số cùng 1 dòng (vd: tổng TS + vốn CSH) → pie
     if len(numeric) == 2 and len(data) == 1 and not date_like:
         return "pie"
+
+    # Nhiều entity + nhiều metric → heatmap ma trận
+    if categorical and len(numeric) >= 3 and len(data) >= 3 and not date_like:
+        return "heatmap"
+
+    # 2+ metric số, so sánh ngang hàng → scatter
+    if len(numeric) >= 2 and not date_like and len(data) >= 5:
+        if any(k in q_lower for k in ("so sánh", "so sanh", "vs", "với", "voi")):
+            return "scatter"
 
     if numeric:
         return "bar"

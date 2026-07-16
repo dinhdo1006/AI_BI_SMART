@@ -5,6 +5,9 @@ export type ChartType =
   | "area"
   | "combo"
   | "candlestick"
+  | "heatmap"
+  | "scatter"
+  | "treemap"
   | "table";
 
 export type ResponseStatus = "success" | "error" | "empty";

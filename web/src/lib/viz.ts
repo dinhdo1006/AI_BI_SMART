@@ -1,13 +1,25 @@
 import type { ChartType } from "./types";
 
 const VIZ_ONLY =
-  /(làm|lam|vẽ|ve|đổi|doi|chuyển|chuyen|cho\s+tôi|cho\s+toi|tạo|tao|hiển\s*thị|hien\s*thi|xem).{0,60}(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|pie|bar|line|area|combo)/i;
+  /(làm|lam|vẽ|ve|đổi|doi|chuyển|chuyen|cho\s+tôi|cho\s+toi|tạo|tao|hiển\s*thị|hien\s*thi|xem).{0,60}(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|pie|bar|line|area|combo|heatmap|scatter|treemap|nhiệt|phan\s*tán|phân\s*tán|cây)/i;
 
 const DATA_ASK =
   /(liệt\s*kê|liet\s*ke|tổng|tong|trung\s*bình|trung\s*binh|theo\s*từng|dự\s*án|du\s*an|mỏ|trữ\s*lượng|phân\s*tích|so\s*sánh|bao\s*nhiêu|top|diễn\s*biến|dien\s*bien)/i;
 
 const CHART_PATTERNS: [ChartType, RegExp][] = [
   ["candlestick", /(biểu\s*đồ|bieu\s*do).{0,30}(nến|nen|candle)|candlestick|ohlc/i],
+  [
+    "heatmap",
+    /(biểu\s*đồ|bieu\s*do).{0,30}(nhiệt|nhiet|heatmap)|heatmap|ma\s*trận|ma\s*tran|heat\s*map/i,
+  ],
+  [
+    "scatter",
+    /(biểu\s*đồ|bieu\s*do).{0,30}(phân\s*tán|phan\s*tan|scatter)|scatter|tương\s*quan|tuong\s*quan|xy\s*plot/i,
+  ],
+  [
+    "treemap",
+    /(biểu\s*đồ|bieu\s*do).{0,30}(cây|cay|treemap|khối|khoi)|treemap|tree\s*map|ô\s*vuông|o\s*vuong/i,
+  ],
   ["area", /(biểu\s*đồ|bieu\s*do).{0,30}(miền|mien|vùng|vung|area)|area\s*chart/i],
   ["line", /(biểu\s*đồ|bieu\s*do).{0,30}(đường|duong|line)|line\s*chart|xu\s*hướng|theo\s*(thời\s*gian|ngày)|dự\s*báo|du\s*bao|forecast/i],
   ["combo", /(combo|kết\s*hợp|giá\s*và\s*khối\s*lượng|price\s*and\s*volume)/i],
@@ -17,7 +29,7 @@ const CHART_PATTERNS: [ChartType, RegExp][] = [
 ];
 
 const ENTITY_COL =
-  /^(ticker|symbol|ma_cp|ma\s*cp|company_name|short_name|project_name|area_name|owner|department|province|mineral_type|status)$/i;
+  /^(ticker|symbol|ma_cp|ma\s*cp|company_name|short_name|project_name|area_name|owner|department|province|mineral_type|status|sector|industry)$/i;
 
 const PRICE_COL = /(close_price|open_price|high_price|low_price|adjusted_price|gia|price)/i;
 const VOLUME_COL = /(volume|khoi_luong|khối lượng|value|gia_tri)/i;
@@ -46,6 +58,9 @@ export function chartQueryForType(chart: ChartType): string {
     pie: "Vẽ biểu đồ tròn",
     combo: "Vẽ biểu đồ combo",
     candlestick: "Vẽ biểu đồ nến",
+    heatmap: "Vẽ biểu đồ nhiệt",
+    scatter: "Vẽ biểu đồ phân tán",
+    treemap: "Vẽ biểu đồ cây",
     table: "Chỉ hiển thị bảng",
   };
   return map[chart];
@@ -210,6 +225,111 @@ export function detectOhlcColumns(data: Record<string, unknown>[]): {
   return null;
 }
 
+export type HeatmapAxes =
+  | {
+      mode: "pivot";
+      row: string;
+      col: string;
+      value: string;
+    }
+  | {
+      mode: "metrics";
+      row: string;
+      metrics: string[];
+    };
+
+/** Trục heatmap: 2 danh mục + 1 số, hoặc 1 danh mục × nhiều metric. */
+export function pickHeatmapAxes(
+  data: Record<string, unknown>[],
+): HeatmapAxes | null {
+  if (!data.length) return null;
+  const { numeric, categorical, dateLike } = analyzeColumns(data);
+  const entity =
+    categorical.find((c) => ENTITY_COL.test(c)) ||
+    categorical.find((c) => !/id$/i.test(c));
+  const preferred = [...numeric].sort(
+    (a, b) => metricScore(b) - metricScore(a),
+  );
+
+  if (entity && dateLike[0] && preferred[0]) {
+    if (uniqueCount(data, entity) >= 2 && uniqueCount(data, dateLike[0]) >= 2) {
+      return {
+        mode: "pivot",
+        row: entity,
+        col: dateLike[0],
+        value: preferred[0],
+      };
+    }
+  }
+
+  if (categorical.length >= 2 && preferred[0]) {
+    const row = entity || categorical[0];
+    const col = categorical.find((c) => c !== row) || categorical[1];
+    if (uniqueCount(data, row) >= 2 && uniqueCount(data, col) >= 2) {
+      return { mode: "pivot", row, col, value: preferred[0] };
+    }
+  }
+
+  if (entity && preferred.length >= 2) {
+    return {
+      mode: "metrics",
+      row: entity,
+      metrics: preferred.slice(0, 8),
+    };
+  }
+
+  return null;
+}
+
+export type ScatterAxes = {
+  x: string;
+  y: string;
+  size?: string;
+  label?: string;
+};
+
+/** Hai cột số độc lập cho scatter (+ nhãn entity nếu có). */
+export function pickScatterAxes(
+  data: Record<string, unknown>[],
+): ScatterAxes | null {
+  if (!data.length) return null;
+  const { numeric, categorical } = analyzeColumns(data);
+  const preferred = [...numeric].sort(
+    (a, b) => metricScore(b) - metricScore(a),
+  );
+  if (preferred.length < 2) return null;
+  const entity =
+    categorical.find((c) => ENTITY_COL.test(c)) ||
+    categorical.find((c) => !/id$/i.test(c));
+  return {
+    x: preferred[0],
+    y: preferred[1],
+    size: preferred[2],
+    label: entity,
+  };
+}
+
+export type TreemapAxes = {
+  name: string;
+  value: string;
+};
+
+export function pickTreemapAxes(
+  data: Record<string, unknown>[],
+): TreemapAxes | null {
+  if (!data.length) return null;
+  const { numeric, categorical } = analyzeColumns(data);
+  const name =
+    categorical.find((c) => ENTITY_COL.test(c)) ||
+    categorical.find((c) => !/id$/i.test(c)) ||
+    categorical[0];
+  const preferred = [...numeric].sort(
+    (a, b) => metricScore(b) - metricScore(a),
+  );
+  if (!name || !preferred[0]) return null;
+  return { name, value: preferred[0] };
+}
+
 /**
  * Điều chỉnh loại chart khi dữ liệu không phù hợp.
  */
@@ -223,12 +343,24 @@ export function refineChartType(
     return detectOhlcColumns(data) ? "candlestick" : "line";
   }
 
+  if (requested === "heatmap") {
+    return pickHeatmapAxes(data) ? "heatmap" : "bar";
+  }
+
+  if (requested === "scatter") {
+    return pickScatterAxes(data) ? "scatter" : "bar";
+  }
+
+  if (requested === "treemap") {
+    return pickTreemapAxes(data) ? "treemap" : "pie";
+  }
+
   const { yCols } = pickChartAxes(data);
 
   if (requested === "combo" && yCols.length < 2) return "bar";
 
   if (requested === "pie") {
-    if (data.length > 12) return "bar";
+    if (data.length > 12) return pickTreemapAxes(data) ? "treemap" : "bar";
     if (yCols.length === 0) return "table";
   }
 
@@ -243,10 +375,18 @@ export function chartTypeHint(
   if (refined === requested) return null;
   if (requested === "pie" && refined === "bar")
     return "Pie không phù hợp khi >12 dòng — đã chuyển sang cột.";
+  if (requested === "pie" && refined === "treemap")
+    return "Nhiều danh mục — đã chuyển sang treemap (cây).";
   if (requested === "combo" && refined === "bar")
     return "Combo cần ≥2 cột số — đã chuyển sang cột.";
   if (requested === "candlestick" && refined !== "candlestick")
     return "Thiếu cột OHLC — đã chuyển sang đường.";
+  if (requested === "heatmap" && refined !== "heatmap")
+    return "Thiếu ma trận phù hợp — đã chuyển sang cột.";
+  if (requested === "scatter" && refined !== "scatter")
+    return "Cần ≥2 cột số — đã chuyển sang cột.";
+  if (requested === "treemap" && refined !== "treemap")
+    return "Thiếu danh mục/giá trị — đã chuyển sang tròn.";
   return `Đã điều chỉnh sang ${refined}.`;
 }
 
@@ -259,4 +399,30 @@ export function shouldUseHorizontalBar(
   const avgLen =
     labels.reduce((s, t) => s + t.length, 0) / Math.max(labels.length, 1);
   return avgLen > 12 || data.length > 6;
+}
+
+/** Moving average đơn giản; null ở đầu chuỗi cho đến khi đủ cửa sổ. */
+export function movingAverage(
+  values: (number | null)[],
+  window: number,
+): (number | null)[] {
+  if (window < 2) return values;
+  const out: (number | null)[] = [];
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) {
+      out.push(null);
+      continue;
+    }
+    let sum = 0;
+    let count = 0;
+    for (let j = i - window + 1; j <= i; j++) {
+      const v = values[j];
+      if (v != null && Number.isFinite(v)) {
+        sum += v;
+        count += 1;
+      }
+    }
+    out.push(count === window ? sum / window : null);
+  }
+  return out;
 }

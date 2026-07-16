@@ -35,6 +35,9 @@ const CHART_OPTIONS: { value: ChartType; label: string }[] = [
   { value: "pie", label: "Tròn" },
   { value: "combo", label: "Combo" },
   { value: "candlestick", label: "Nến" },
+  { value: "heatmap", label: "Nhiệt" },
+  { value: "scatter", label: "Phân tán" },
+  { value: "treemap", label: "Cây" },
   { value: "table", label: "Bảng" },
 ];
 
