@@ -15,6 +15,7 @@ import {
   CHART_DENSE_THRESHOLDS,
   detectHeatmapDisambiguator,
   detectOhlcColumns,
+  prepareHeatmapMetricRows,
   movingAverage,
   pickChartAxes,
   pickHeatmapAxes,
@@ -134,32 +135,29 @@ export function DataChart({
     if (!total) return null;
 
     if (effectiveType === "heatmap" && heatmapAxes) {
-      const rowKey =
-        heatmapAxes.mode === "pivot" ? heatmapAxes.row : heatmapAxes.row;
-      const colKey =
-        heatmapAxes.mode === "pivot"
-          ? heatmapAxes.col
-          : heatmapAxes.metrics[0];
-      const rowCount = new Set(data.map((r) => String(r[rowKey] ?? ""))).size;
-      const colCount =
-        heatmapAxes.mode === "pivot"
-          ? new Set(data.map((r) => String(r[colKey] ?? ""))).size
-          : heatmapAxes.metrics.length;
-      const displayedRows = Math.min(rowCount, CHART_DENSE_THRESHOLDS.heatmapMaxDim);
-      const displayedCols = Math.min(colCount, CHART_DENSE_THRESHOLDS.heatmapMaxDim);
-      const truncated =
-        rowCount > CHART_DENSE_THRESHOLDS.heatmapMaxDim ||
-        colCount > CHART_DENSE_THRESHOLDS.heatmapMaxDim;
-      const needsZoom =
-        rowCount > CHART_DENSE_THRESHOLDS.heatmapZoomDim ||
-        colCount > CHART_DENSE_THRESHOLDS.heatmapZoomDim;
-      return buildChartDensityInfo(Math.max(rowCount, colCount), Math.max(displayedRows, displayedCols), {
+      if (heatmapAxes.mode === "metrics") {
+        const { rows, truncated } = prepareHeatmapMetricRows(
+          data,
+          heatmapAxes.row,
+          heatmapAxes.metrics,
+        );
+        const deduped = rows.length < data.length;
+        return buildChartDensityInfo(data.length, rows.length, {
+          truncated: truncated || deduped,
+          extra: deduped
+            ? "Mỗi mã 1 hàng (kỳ mới nhất) · màu chuẩn hóa theo cột"
+            : "Màu chuẩn hóa riêng từng chỉ số — hover để xem giá trị thật",
+        });
+      }
+      const totalRows = new Set(
+        data.map((r) => String(r[heatmapAxes.row] ?? "")),
+      ).size;
+      const limit = CHART_DENSE_THRESHOLDS.heatmapPivotMaxDim;
+      const displayedRows = Math.min(totalRows, limit);
+      const truncated = totalRows > limit;
+      return buildChartDensityInfo(totalRows, displayedRows, {
         truncated,
-        needsZoom,
-        extra:
-          heatmapAxes.mode === "metrics"
-            ? "Màu chuẩn hóa riêng từng chỉ số — hover để xem giá trị thật"
-            : undefined,
+        extra: truncated ? "Giới hạn số hàng/cột để heatmap dễ đọc" : undefined,
       });
     }
 
@@ -352,36 +350,58 @@ export function DataChart({
     );
   }
 
+  const heatmapRowCount = useMemo(() => {
+    if (effectiveType !== "heatmap" || !heatmapAxes) return 0;
+    if (heatmapAxes.mode === "pivot") {
+      return Math.min(
+        new Set(data.map((r) => String(r[heatmapAxes.row] ?? ""))).size,
+        CHART_DENSE_THRESHOLDS.heatmapPivotMaxDim,
+      );
+    }
+    return prepareHeatmapMetricRows(
+      data,
+      heatmapAxes.row,
+      heatmapAxes.metrics,
+    ).rows.length;
+  }, [effectiveType, heatmapAxes, data]);
+
   const pointCount = chartData.length;
   const hasDataZoom =
     !!densityInfo?.needsZoom &&
+    effectiveType !== "heatmap" &&
     (effectiveType === "line" ||
       effectiveType === "area" ||
       effectiveType === "bar" ||
       effectiveType === "combo" ||
       effectiveType === "candlestick" ||
-      effectiveType === "waterfall" ||
-      effectiveType === "heatmap");
+      effectiveType === "waterfall");
 
   const height =
-    effectiveType === "treemap" ||
-    effectiveType === "heatmap" ||
-    effectiveType === "radar" ||
-    effectiveType === "candlestick"
-      ? hasDataZoom
-        ? 420
-        : 380
-      : horizontal
-        ? Math.min(
-            CHART_DENSE_THRESHOLDS.horizontalBarMaxHeight,
-            Math.max(
-              CHART_DENSE_THRESHOLDS.horizontalBarMinHeight,
-              72 + pointCount * CHART_DENSE_THRESHOLDS.horizontalBarRowHeight,
-            ),
-          )
-        : hasDataZoom
-          ? 360
-          : 310;
+    effectiveType === "heatmap"
+      ? Math.min(
+          CHART_DENSE_THRESHOLDS.heatmapMaxHeight,
+          Math.max(
+            CHART_DENSE_THRESHOLDS.heatmapMinHeight,
+            72 + heatmapRowCount * CHART_DENSE_THRESHOLDS.heatmapRowHeight,
+          ),
+        )
+      : effectiveType === "treemap" ||
+          effectiveType === "radar" ||
+          effectiveType === "candlestick"
+        ? hasDataZoom
+          ? 420
+          : 380
+        : horizontal
+          ? Math.min(
+              CHART_DENSE_THRESHOLDS.horizontalBarMaxHeight,
+              Math.max(
+                CHART_DENSE_THRESHOLDS.horizontalBarMinHeight,
+                72 + pointCount * CHART_DENSE_THRESHOLDS.horizontalBarRowHeight,
+              ),
+            )
+          : hasDataZoom
+            ? 360
+            : 310;
   const title = chartTitle({
     effectiveType,
     ohlc,
@@ -504,7 +524,7 @@ function buildHeatmapOption(
   let colLabels: string[] = [];
   let cells: [number, number, number | null][] = [];
   let valueHint = "";
-  const maxDim = CHART_DENSE_THRESHOLDS.heatmapMaxDim;
+  const pivotMax = CHART_DENSE_THRESHOLDS.heatmapPivotMaxDim;
   const metricsNormalized = axes.mode === "metrics";
   const rawValues = new Map<string, { value: number; metricKey: string }>();
 
@@ -516,8 +536,8 @@ function buildHeatmapOption(
     const colSet = Array.from(
       new Set(data.map((r) => formatAxisLabel(r[axes.col], axes.col))),
     );
-    rowLabels = rowSet.slice(0, maxDim);
-    colLabels = colSet.slice(0, maxDim);
+    rowLabels = rowSet.slice(0, pivotMax);
+    colLabels = colSet.slice(0, pivotMax);
     const lookup = new Map<string, number>();
     for (const r of data) {
       const rk = String(r[axes.row] ?? "");
@@ -534,7 +554,11 @@ function buildHeatmapOption(
     });
   } else {
     valueHint = axes.metrics[0] || "";
-    const rows = data.slice(0, maxDim);
+    const { rows } = prepareHeatmapMetricRows(
+      data,
+      axes.row,
+      axes.metrics,
+    );
     const disambiguator = detectHeatmapDisambiguator(
       rows,
       axes.row,
@@ -577,38 +601,9 @@ function buildHeatmapOption(
     : nums.length
       ? Math.max(...nums)
       : 1;
-  const dense =
-    rowLabels.length > CHART_DENSE_THRESHOLDS.heatmapZoomDim ||
-    colLabels.length > CHART_DENSE_THRESHOLDS.heatmapZoomDim;
-  const dataZoom = dense
-    ? [
-        {
-          type: "inside" as const,
-          xAxisIndex: 0,
-          yAxisIndex: 0,
-          zoomOnMouseWheel: true,
-          moveOnMouseMove: true,
-        },
-        {
-          type: "slider" as const,
-          xAxisIndex: 0,
-          bottom: 4,
-          height: 16,
-          brushSelect: false,
-        },
-        {
-          type: "slider" as const,
-          yAxisIndex: 0,
-          right: 4,
-          width: 16,
-          brushSelect: false,
-        },
-      ]
-    : undefined;
 
   return {
     animationDuration: 700,
-    ...(dataZoom ? { dataZoom } : {}),
     tooltip: {
       position: "top",
       backgroundColor: "rgba(255,255,255,0.96)",
@@ -636,9 +631,9 @@ function buildHeatmapOption(
     },
     grid: {
       left: 12,
-      right: dense ? 88 : 72,
+      right: 72,
       top: 16,
-      bottom: dense ? 64 : 48,
+      bottom: colLabels.length > 8 ? 72 : 48,
       containLabel: true,
     },
     xAxis: {
@@ -648,9 +643,11 @@ function buildHeatmapOption(
       axisLabel: {
         color: "#5b6b73",
         fontSize: 10,
-        rotate: colLabels.length > 6 ? 30 : 0,
-        interval: dense ? ("auto" as const) : 0,
+        rotate: colLabels.length > 5 ? 40 : 0,
+        interval: colLabels.length > 10 ? ("auto" as const) : 0,
         hideOverlap: true,
+        width: 72,
+        overflow: "truncate",
       },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -659,7 +656,12 @@ function buildHeatmapOption(
       type: "category",
       data: rowLabels,
       splitArea: { show: true },
-      axisLabel: { color: "#5b6b73", fontSize: 11 },
+      axisLabel: {
+        color: "#5b6b73",
+        fontSize: 11,
+        width: 88,
+        overflow: "truncate",
+      },
       axisLine: { show: false },
       axisTick: { show: false },
     },

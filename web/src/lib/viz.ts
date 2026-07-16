@@ -274,14 +274,12 @@ export function pickHeatmapAxes(
 
   if (categorical.length >= 2 && preferred[0]) {
     const row = entity || categorical[0];
-    // Prefer a non-entity column as col axis to avoid sparse diagonal pivots
-    // (e.g. ticker × company_name both match ENTITY_COL but map 1:1)
     const col =
       categorical.find((c) => c !== row && !ENTITY_COL.test(c)) ??
       categorical.find((c) => c !== row);
     if (
       col &&
-      !(ENTITY_COL.test(row) && ENTITY_COL.test(col)) &&
+      !isBadHeatmapPivot(row, col) &&
       uniqueCount(data, row) >= 2 &&
       uniqueCount(data, col) >= 2
     ) {
@@ -290,14 +288,72 @@ export function pickHeatmapAxes(
   }
 
   if (entity && preferred.length >= 2) {
+    const entityRows = uniqueCount(data, entity);
+    // Nhiều dòng trùng mã + có ngày → gom 1 hàng/mã (trong build), không pivot 1 metric
+    if (data.length > CHART_DENSE_THRESHOLDS.heatmapMetricsMaxRows * 2) {
+      return null;
+    }
     return {
       mode: "metrics",
       row: entity,
-      metrics: preferred.slice(0, 8),
+      metrics: preferred.slice(0, 6),
     };
   }
 
   return null;
+}
+
+/** Pivot vô nghĩa: mã × tên công ty (1:1, ma trận chéo thưa). */
+export function isBadHeatmapPivot(row: string, col: string): boolean {
+  if (ENTITY_COL.test(row) && ENTITY_COL.test(col)) return true;
+  const r = row.toLowerCase();
+  const c = col.toLowerCase();
+  const isCode = /ticker|symbol|ma_cp|ma\s*cp/.test(r);
+  const isName = /company|short_name|ten_cong_ty/.test(c);
+  const isCodeCol = /ticker|symbol|ma_cp|ma\s*cp/.test(c);
+  const isNameRow = /company|short_name|ten_cong_ty/.test(r);
+  return (isCode && isName) || (isCodeCol && isNameRow);
+}
+
+/** Giới hạn số hàng metrics heatmap — 1 hàng/mã (kỳ mới nhất), tối đa limit. */
+export function prepareHeatmapMetricRows(
+  data: Record<string, unknown>[],
+  entityKey: string,
+  metricKeys: string[],
+  limit = CHART_DENSE_THRESHOLDS.heatmapMetricsMaxRows,
+): { rows: Record<string, unknown>[]; truncated: boolean } {
+  if (!data.length) return { rows: [], truncated: false };
+
+  const dateCol = Object.keys(data[0] ?? {}).find((c) =>
+    /date|ngay|trade_date|calc_date|period/i.test(c),
+  );
+
+  const byEntity = new Map<string, Record<string, unknown>>();
+  for (const row of data) {
+    const key = String(row[entityKey] ?? "");
+    const prev = byEntity.get(key);
+    if (!prev) {
+      byEntity.set(key, row);
+      continue;
+    }
+    if (!dateCol) continue;
+    if (
+      String(row[dateCol] ?? "").localeCompare(String(prev[dateCol] ?? "")) > 0
+    ) {
+      byEntity.set(key, row);
+    }
+  }
+
+  let rows = Array.from(byEntity.values());
+  if (dateCol) {
+    rows.sort((a, b) =>
+      String(b[dateCol] ?? "").localeCompare(String(a[dateCol] ?? "")),
+    );
+  }
+
+  const truncated = rows.length > limit;
+  if (truncated) rows = rows.slice(0, limit);
+  return { rows, truncated };
 }
 
 /** Cột phụ để phân biệt khi cùng mã xuất hiện nhiều dòng (ngày, kỳ, …). */
@@ -579,8 +635,11 @@ export function movingAverage(
 export const CHART_DENSE_THRESHOLDS = {
   dataZoom: 24,
   pieMaxSlices: 12,
-  heatmapMaxDim: 80,
-  heatmapZoomDim: 16,
+  heatmapPivotMaxDim: 36,
+  heatmapMetricsMaxRows: 20,
+  heatmapRowHeight: 30,
+  heatmapMinHeight: 280,
+  heatmapMaxHeight: 720,
   scatterLarge: 120,
   horizontalBarRowHeight: 28,
   horizontalBarMinHeight: 310,
