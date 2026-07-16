@@ -8,6 +8,8 @@ export type ChartType =
   | "heatmap"
   | "scatter"
   | "treemap"
+  | "radar"
+  | "waterfall"
   | "table";
 
 export type ResponseStatus = "success" | "error" | "empty";

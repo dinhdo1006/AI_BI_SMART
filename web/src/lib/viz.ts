@@ -1,13 +1,21 @@
 import type { ChartType } from "./types";
 
 const VIZ_ONLY =
-  /(làm|lam|vẽ|ve|đổi|doi|chuyển|chuyen|cho\s+tôi|cho\s+toi|tạo|tao|hiển\s*thị|hien\s*thi|xem).{0,60}(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|pie|bar|line|area|combo|heatmap|scatter|treemap|nhiệt|phan\s*tán|phân\s*tán|cây)/i;
+  /(làm|lam|vẽ|ve|đổi|doi|chuyển|chuyen|cho\s+tôi|cho\s+toi|tạo|tao|hiển\s*thị|hien\s*thi|xem).{0,60}(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|pie|bar|line|area|combo|heatmap|scatter|treemap|radar|waterfall|nhiệt|phan\s*tán|phân\s*tán|cây)/i;
 
 const DATA_ASK =
   /(liệt\s*kê|liet\s*ke|tổng|tong|trung\s*bình|trung\s*binh|theo\s*từng|dự\s*án|du\s*an|mỏ|trữ\s*lượng|phân\s*tích|so\s*sánh|bao\s*nhiêu|top|diễn\s*biến|dien\s*bien)/i;
 
 const CHART_PATTERNS: [ChartType, RegExp][] = [
   ["candlestick", /(biểu\s*đồ|bieu\s*do).{0,30}(nến|nen|candle)|candlestick|ohlc/i],
+  [
+    "waterfall",
+    /(biểu\s*đồ|bieu\s*do).{0,30}(thác|thac|waterfall)|waterfall|đóng\s*góp|dong\s*gop/i,
+  ],
+  [
+    "radar",
+    /(biểu\s*đồ|bieu\s*do).{0,30}(radar|mạng\s*nhện|mang\s*nhen|spider)|radar\s*chart|spider\s*chart/i,
+  ],
   [
     "heatmap",
     /(biểu\s*đồ|bieu\s*do).{0,30}(nhiệt|nhiet|heatmap)|heatmap|ma\s*trận|ma\s*tran|heat\s*map/i,
@@ -61,6 +69,8 @@ export function chartQueryForType(chart: ChartType): string {
     heatmap: "Vẽ biểu đồ nhiệt",
     scatter: "Vẽ biểu đồ phân tán",
     treemap: "Vẽ biểu đồ cây",
+    radar: "Vẽ biểu đồ radar",
+    waterfall: "Vẽ biểu đồ thác nước",
     table: "Chỉ hiển thị bảng",
   };
   return map[chart];
@@ -330,6 +340,75 @@ export function pickTreemapAxes(
   return { name, value: preferred[0] };
 }
 
+export type RadarAxes = {
+  entity: string;
+  metrics: string[];
+};
+
+export function pickRadarAxes(
+  data: Record<string, unknown>[],
+): RadarAxes | null {
+  if (!data.length) return null;
+  const { numeric, categorical } = analyzeColumns(data);
+  const entity =
+    categorical.find((c) => ENTITY_COL.test(c)) ||
+    categorical.find((c) => !/id$/i.test(c));
+  const metrics = [...numeric]
+    .sort((a, b) => metricScore(b) - metricScore(a))
+    .slice(0, 8);
+  if (!entity || metrics.length < 3) return null;
+  if (uniqueCount(data, entity) < 2 || data.length > 12) return null;
+  return { entity, metrics };
+}
+
+export type WaterfallAxes = {
+  category: string;
+  value: string;
+};
+
+export function pickWaterfallAxes(
+  data: Record<string, unknown>[],
+): WaterfallAxes | null {
+  if (!data.length) return null;
+  const { numeric, categorical, dateLike } = analyzeColumns(data);
+  if (dateLike.length && uniqueCount(data, dateLike[0]) >= 3) return null;
+  const category =
+    categorical.find((c) => ENTITY_COL.test(c)) ||
+    categorical.find((c) => !/id$/i.test(c)) ||
+    categorical[0];
+  const preferred = [...numeric].sort(
+    (a, b) => metricScore(b) - metricScore(a),
+  );
+  if (!category || !preferred[0]) return null;
+  if (data.length < 3 || data.length > 20) return null;
+  return { category, value: preferred[0] };
+}
+
+/** Các loại chart render được với data hiện tại. */
+export function compatibleCharts(
+  data: Record<string, unknown>[],
+): ChartType[] {
+  if (!data.length) return ["table"];
+  const { numeric, categorical, dateLike } = analyzeColumns(data);
+  const out: ChartType[] = ["table"];
+  if (!numeric.length) return out;
+
+  out.push("bar");
+  if (dateLike.length) out.push("line", "area");
+  if (numeric.length >= 2 && dateLike.length) out.push("combo");
+  if (detectOhlcColumns(data)) out.push("candlestick");
+  if (pickHeatmapAxes(data)) out.push("heatmap");
+  if (pickScatterAxes(data)) out.push("scatter");
+  if (categorical.length && numeric.length && data.length >= 2) {
+    if (data.length <= 12) out.push("pie");
+    out.push("treemap");
+  }
+  if (pickRadarAxes(data)) out.push("radar");
+  if (pickWaterfallAxes(data)) out.push("waterfall");
+
+  return [...new Set(out)];
+}
+
 /**
  * Điều chỉnh loại chart khi dữ liệu không phù hợp.
  */
@@ -353,6 +432,14 @@ export function refineChartType(
 
   if (requested === "treemap") {
     return pickTreemapAxes(data) ? "treemap" : "pie";
+  }
+
+  if (requested === "radar") {
+    return pickRadarAxes(data) ? "radar" : "bar";
+  }
+
+  if (requested === "waterfall") {
+    return pickWaterfallAxes(data) ? "waterfall" : "bar";
   }
 
   const { yCols } = pickChartAxes(data);
@@ -387,6 +474,10 @@ export function chartTypeHint(
     return "Cần ≥2 cột số — đã chuyển sang cột.";
   if (requested === "treemap" && refined !== "treemap")
     return "Thiếu danh mục/giá trị — đã chuyển sang tròn.";
+  if (requested === "radar" && refined !== "radar")
+    return "Radar cần ≥3 chỉ số và vài mã — đã chuyển sang cột.";
+  if (requested === "waterfall" && refined !== "waterfall")
+    return "Waterfall cần danh mục + 1 metric — đã chuyển sang cột.";
   return `Đã điều chỉnh sang ${refined}.`;
 }
 

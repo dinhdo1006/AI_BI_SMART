@@ -15,6 +15,8 @@ ChartType = Literal[
     "heatmap",
     "scatter",
     "treemap",
+    "radar",
+    "waterfall",
     "table",
 ]
 
@@ -25,6 +27,22 @@ _CHART_PATTERNS: list[tuple[ChartType, re.Pattern[str]]] = [
         re.compile(
             r"(biểu\s*đồ|bieu\s*do).{0,30}(nến|nen|candle)|"
             r"candlestick|ohlc|đồ\s*thị\s*nến|do\s*thi\s*nen",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "waterfall",
+        re.compile(
+            r"(biểu\s*đồ|bieu\s*do).{0,30}(thác|thac|waterfall)|"
+            r"waterfall|bridge\s*chart|đóng\s*góp|dong\s*gop",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "radar",
+        re.compile(
+            r"(biểu\s*đồ|bieu\s*do).{0,30}(radar|mạng\s*nhện|mang\s*nhen|spider)|"
+            r"radar\s*chart|spider\s*chart",
             re.IGNORECASE,
         ),
     ),
@@ -109,7 +127,7 @@ _VIZ_ONLY: re.Pattern[str] = re.compile(
     r"(làm|lam|vẽ|ve|đổi|doi|chuyển|chuyen|cho\s+tôi|cho\s+toi|tạo|tao|hiển\s*thị|hien\s*thi|"
     r"xem).{0,60}"
     r"(biểu\s*đồ|bieu\s*do|chart|tròn|tron|cột|cot|đường|duong|miền|mien|vùng|vung|"
-    r"pie|bar|line|area|combo|heatmap|scatter|treemap|nhiệt|nhiet|phân\s*tán|phan\s*tan|cây|cay)",
+    r"pie|bar|line|area|combo|heatmap|scatter|treemap|radar|waterfall|nhiệt|nhiet|phân\s*tán|phan\s*tan|cây|cay)",
     re.IGNORECASE,
 )
 
@@ -274,13 +292,123 @@ def _is_list_only_query(user_query: str) -> bool:
     return False
 
 
+def _unique_count(data: list[dict[str, Any]], col: str) -> int:
+    return len({str(row.get(col, "")) for row in data})
+
+
+def _detect_ohlc_cols(data: list[dict[str, Any]]) -> dict[str, str] | None:
+    """Tìm cột OHLC theo tên — không hardcode mã CP."""
+    if not data:
+        return None
+    cols = list(data[0].keys())
+
+    def _find(*parts: str) -> str | None:
+        for c in cols:
+            low = c.lower()
+            if any(p in low for p in parts):
+                return c
+        return None
+
+    open_c = _find("open_price", "open", "gia_mo")
+    high_c = _find("high_price", "high", "gia_cao")
+    low_c = _find("low_price", "low", "gia_thap")
+    close_c = _find("close_price", "adjusted_price", "close", "gia_dong")
+    if open_c and high_c and low_c and close_c:
+        date_c = _find("trade_date", "calc_date", "ngay", "date")
+        return {
+            "open": open_c,
+            "high": high_c,
+            "low": low_c,
+            "close": close_c,
+            **({"date": date_c} if date_c else {}),
+        }
+    return None
+
+
+def _entity_col(categorical: list[str]) -> str | None:
+    entity_names = {
+        "ticker",
+        "symbol",
+        "ma_cp",
+        "company_name",
+        "short_name",
+        "sector",
+        "industry",
+        "group_code",
+    }
+    for c in categorical:
+        if c.lower() in entity_names or c.lower().replace(" ", "_") in entity_names:
+            return c
+    return categorical[0] if categorical else None
+
+
+def compatible_charts(data: list[dict[str, Any]]) -> list[ChartType]:
+    """
+    Các loại chart render được với shape data hiện tại.
+    Dùng để UI disable option không phù hợp — suy từ data, không whitelist câu hỏi.
+    """
+    if not data:
+        return ["table"]
+
+    numeric, date_like, categorical = _analyze_columns(data)
+    out: list[ChartType] = ["table"]
+
+    if not numeric:
+        return out
+
+    out.append("bar")
+    if date_like:
+        out.extend(["line", "area"])
+    if len(numeric) >= 2 and date_like:
+        out.append("combo")
+    if _detect_ohlc_cols(data):
+        out.append("candlestick")
+
+    entity = _entity_col(categorical)
+    # Heatmap: entity×date×value hoặc entity×nhiều metric
+    heat_ok = False
+    if entity and date_like and numeric:
+        if _unique_count(data, entity) >= 2 and _unique_count(data, date_like[0]) >= 2:
+            heat_ok = True
+    if entity and len(numeric) >= 2:
+        heat_ok = True
+    if len(categorical) >= 2 and numeric:
+        heat_ok = True
+    if heat_ok:
+        out.append("heatmap")
+
+    if len(numeric) >= 2 and len(data) >= 3:
+        out.append("scatter")
+
+    if categorical and numeric and len(data) >= 2:
+        if len(data) <= 12:
+            out.append("pie")
+        out.append("treemap")
+
+    # Radar: nhiều metric so sánh giữa vài entity
+    if entity and len(numeric) >= 3 and 2 <= len(data) <= 12:
+        out.append("radar")
+
+    # Waterfall: 1 metric + category (đóng góp / thay đổi)
+    if categorical and len(numeric) >= 1 and 3 <= len(data) <= 20 and not date_like:
+        out.append("waterfall")
+
+    # Dedupe giữ thứ tự
+    seen: set[str] = set()
+    ordered: list[ChartType] = []
+    for c in out:
+        if c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    return ordered
+
+
 def suggest_chart_from_data(
     data: list[dict[str, Any]],
     user_query: str = "",
 ) -> ChartType:
     """
-    Gợi ý chart theo data khi user không chỉ định.
-    Ưu tiên combo (giá+KL), line (time-series), bar, pie (≤8 category).
+    Gợi ý chart theo hình dạng dữ liệu (ưu tiên shape, không map từng câu hỏi).
     """
     if not data:
         return "table"
@@ -289,54 +417,53 @@ def suggest_chart_from_data(
         return "table"
 
     numeric, date_like, categorical = _analyze_columns(data)
-
     if not numeric:
         return "table"
 
-    # Time-series + giá/KL lệch độ lớn → combo
+    # OHLC đủ → nến (kể cả khi chưa nói "nến")
+    if _detect_ohlc_cols(data) and (date_like or len(data) >= 3):
+        return "candlestick"
+
+    # Time-series + giá/KL lệch scale → combo
     if date_like and should_use_combo_chart(data, user_query):
         return "combo"
 
+    # Chuỗi thời gian → đường
     if date_like and numeric:
         return "line"
 
-    q_lower = user_query.lower()
+    entity = _entity_col(categorical)
 
-    # Tương quan / phân tán
-    if any(
-        k in q_lower
-        for k in ("tương quan", "tuong quan", "phân tán", "phan tan", "scatter")
-    ):
-        if len(numeric) >= 2:
-            return "scatter"
+    # Nhiều metric × nhiều mã → heatmap hoặc radar
+    if entity and len(numeric) >= 3 and len(data) >= 3 and not date_like:
+        if len(data) <= 8 and len(numeric) >= 3:
+            return "radar"
+        return "heatmap"
 
-    # Ma trận / heatmap
-    if any(k in q_lower for k in ("heatmap", "nhiệt", "nhiet", "ma trận", "ma tran")):
-        if (len(categorical) >= 2 or (categorical and date_like)) and numeric:
-            return "heatmap"
-        if categorical and len(numeric) >= 2:
-            return "heatmap"
+    # 2+ cột số, nhiều điểm → scatter (tương quan)
+    if len(numeric) >= 2 and len(data) >= 5 and not date_like:
+        return "scatter"
 
-    # Cơ cấu / tỷ trọng: ít nhãn → pie, nhiều → treemap
-    if any(
-        k in q_lower
-        for k in ("cơ cấu", "co cau", "tỷ trọng", "ty trong", "cấu trúc", "cau truc", "treemap")
-    ):
-        if categorical and numeric:
-            return "pie" if len(data) <= 8 else "treemap"
-
-    # 2 chỉ số cùng 1 dòng (vd: tổng TS + vốn CSH) → pie
+    # 2 chỉ số trên 1 dòng → pie
     if len(numeric) == 2 and len(data) == 1 and not date_like:
         return "pie"
 
-    # Nhiều entity + nhiều metric → heatmap ma trận
-    if categorical and len(numeric) >= 3 and len(data) >= 3 and not date_like:
-        return "heatmap"
-
-    # 2+ metric số, so sánh ngang hàng → scatter
-    if len(numeric) >= 2 and not date_like and len(data) >= 5:
-        if any(k in q_lower for k in ("so sánh", "so sanh", "vs", "với", "voi")):
-            return "scatter"
+    # Nhiều danh mục + 1 metric: ít → pie/bar, nhiều → treemap
+    if categorical and numeric and not date_like:
+        n = len(data)
+        if n > 12:
+            return "treemap"
+        if n <= 8 and n >= 3:
+            # Giá trị dương thống trị → pie cơ cấu; ngược lại bar xếp hạng
+            sample_col = numeric[0]
+            positives = sum(
+                1
+                for row in data
+                if _is_number(row.get(sample_col)) and float(row[sample_col]) > 0  # type: ignore[arg-type]
+            )
+            if positives >= max(1, int(n * 0.8)):
+                return "pie"
+        return "bar"
 
     if numeric:
         return "bar"
@@ -387,21 +514,25 @@ def resolve_chart_type(
     history: list[dict[str, str]] | None = None,
     data: list[dict[str, Any]] | None = None,
 ) -> ChartType:
-    """Ưu tiên: yêu cầu tường minh → history gần → suy từ data."""
+    """Ưu tiên: yêu cầu tường minh (nếu data cho phép) → history → suy từ shape data."""
+    rows = data or []
+    allowed = set(compatible_charts(rows)) if rows else set()
+
     explicit = detect_chart_from_text(user_query)
     if explicit:
-        return explicit
+        if not rows or explicit in allowed or explicit == "table":
+            return explicit
+        # User xin loại không vẽ được → fallback theo shape
+        return suggest_chart_from_data(rows, user_query)
 
     if history:
         for msg in reversed(history):
             if msg.get("role") == "user":
                 prev = detect_chart_from_text(msg.get("content") or "")
-                if prev:
+                if prev and (not rows or prev in allowed or prev == "table"):
                     return prev
                 break
 
-    rows = data or []
-    # Gợi ý combo từ data ngay cả khi user không nói tường minh
     if should_use_combo_chart(rows, user_query):
         return "combo"
 

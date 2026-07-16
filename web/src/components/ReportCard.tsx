@@ -19,7 +19,7 @@ import {
 } from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
-import { chartTypeHint } from "@/lib/viz";
+import { chartTypeHint, compatibleCharts } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { InsightBlock } from "@/components/InsightBlock";
@@ -38,6 +38,8 @@ const CHART_OPTIONS: { value: ChartType; label: string }[] = [
   { value: "heatmap", label: "Nhiệt" },
   { value: "scatter", label: "Phân tán" },
   { value: "treemap", label: "Cây" },
+  { value: "radar", label: "Radar" },
+  { value: "waterfall", label: "Thác nước" },
   { value: "table", label: "Bảng" },
 ];
 
@@ -110,6 +112,13 @@ export function ReportCard({
   const hint = useMemo(
     () => (hasData ? chartTypeHint(chartType, payload.data) : null),
     [chartType, payload.data, hasData],
+  );
+  const allowedCharts = useMemo(
+    () =>
+      hasData
+        ? new Set(compatibleCharts(payload.data))
+        : new Set<ChartType>(["table"]),
+    [hasData, payload.data],
   );
 
   // Viz-only: ưu tiên insight đã gắn từ backend (previous_insight);
@@ -350,11 +359,18 @@ export function ReportCard({
                 }
                 className="rounded-lg border border-line bg-foam px-2 py-1.5 text-sm text-ink outline-none focus:border-teal"
               >
-                {CHART_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
+                {CHART_OPTIONS.map((o) => {
+                  const ok =
+                    o.value === "table" ||
+                    o.value === chartType ||
+                    allowedCharts.has(o.value);
+                  return (
+                    <option key={o.value} value={o.value} disabled={!ok}>
+                      {o.label}
+                      {!ok ? " (không phù hợp data)" : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             {hint && (

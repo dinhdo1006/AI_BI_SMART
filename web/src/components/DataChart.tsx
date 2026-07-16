@@ -13,13 +13,17 @@ import {
   movingAverage,
   pickChartAxes,
   pickHeatmapAxes,
+  pickRadarAxes,
   pickScatterAxes,
   pickTreemapAxes,
+  pickWaterfallAxes,
   refineChartType,
   shouldUseHorizontalBar,
   type HeatmapAxes,
+  type RadarAxes,
   type ScatterAxes,
   type TreemapAxes,
+  type WaterfallAxes,
 } from "@/lib/viz";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), {
@@ -109,6 +113,15 @@ export function DataChart({
       effectiveType === "treemap" ? pickTreemapAxes(data) : null,
     [effectiveType, data],
   );
+  const radarAxes = useMemo(
+    () => (effectiveType === "radar" ? pickRadarAxes(data) : null),
+    [effectiveType, data],
+  );
+  const waterfallAxes = useMemo(
+    () =>
+      effectiveType === "waterfall" ? pickWaterfallAxes(data) : null,
+    [effectiveType, data],
+  );
 
   const option = useMemo(() => {
     if (effectiveType === "candlestick" && ohlc) {
@@ -122,6 +135,12 @@ export function DataChart({
     }
     if (effectiveType === "treemap" && treemapAxes) {
       return buildTreemapOption(data, treemapAxes, labels);
+    }
+    if (effectiveType === "radar" && radarAxes) {
+      return buildRadarOption(data, radarAxes, labels);
+    }
+    if (effectiveType === "waterfall" && waterfallAxes) {
+      return buildWaterfallOption(data, waterfallAxes, labels);
     }
     if (!x || !yCols.length) return null;
     return buildOption({
@@ -148,6 +167,8 @@ export function DataChart({
     heatmapAxes,
     scatterAxes,
     treemapAxes,
+    radarAxes,
+    waterfallAxes,
     axes.isTimeSeries,
   ]);
 
@@ -215,11 +236,29 @@ export function DataChart({
     );
   }
 
+  if (effectiveType === "radar" && !radarAxes) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Radar cần ≥3 chỉ số số và vài mã để so sánh
+      </div>
+    );
+  }
+
+  if (effectiveType === "waterfall" && !waterfallAxes) {
+    return (
+      <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-dashed border-line bg-foam/50 text-sm text-ink-soft">
+        Waterfall cần danh mục + 1 cột số
+      </div>
+    );
+  }
+
   const advancedOnly =
     effectiveType === "candlestick" ||
     effectiveType === "heatmap" ||
     effectiveType === "scatter" ||
-    effectiveType === "treemap";
+    effectiveType === "treemap" ||
+    effectiveType === "radar" ||
+    effectiveType === "waterfall";
 
   if ((!x || !yCols.length) && !advancedOnly) {
     return (
@@ -238,7 +277,10 @@ export function DataChart({
   }
 
   const height =
-    effectiveType === "treemap" || effectiveType === "heatmap"
+    effectiveType === "treemap" ||
+    effectiveType === "heatmap" ||
+    effectiveType === "radar" ||
+    effectiveType === "candlestick"
       ? 380
       : horizontal
         ? 340
@@ -252,6 +294,8 @@ export function DataChart({
     heatmapAxes,
     scatterAxes,
     treemapAxes,
+    radarAxes,
+    waterfallAxes,
   });
 
   return (
@@ -291,6 +335,8 @@ function chartTitle({
   heatmapAxes,
   scatterAxes,
   treemapAxes,
+  radarAxes,
+  waterfallAxes,
 }: {
   effectiveType: ChartType;
   ohlc: ReturnType<typeof detectOhlcColumns>;
@@ -300,6 +346,8 @@ function chartTitle({
   heatmapAxes: HeatmapAxes | null;
   scatterAxes: ScatterAxes | null;
   treemapAxes: TreemapAxes | null;
+  radarAxes: RadarAxes | null;
+  waterfallAxes: WaterfallAxes | null;
 }): string {
   if (effectiveType === "candlestick" && ohlc) {
     return `Nến · ${friendlyLabel(ohlc.close || "close", labels)}`;
@@ -319,11 +367,23 @@ function chartTitle({
   if (effectiveType === "treemap" && treemapAxes) {
     return `Treemap · ${friendlyLabel(treemapAxes.value, labels)}`;
   }
-  return `${friendlyLabel(x || "", labels)}${
-    yCols.length === 1
-      ? ` · ${friendlyLabel(yCols[0], labels)}`
-      : ` · ${yCols.map((c) => friendlyLabel(c, labels)).join(" · ")}`
-  }`;
+  if (effectiveType === "radar" && radarAxes) {
+    return `Radar · ${radarAxes.metrics
+      .slice(0, 3)
+      .map((m) => friendlyLabel(m, labels))
+      .join(" · ")}`;
+  }
+  if (effectiveType === "waterfall" && waterfallAxes) {
+    return `Waterfall · ${friendlyLabel(waterfallAxes.value, labels)}`;
+  }
+  if (!x || !yCols.length) return "Biểu đồ";
+  if (yCols.length === 1) {
+    return `${friendlyLabel(yCols[0], labels)} theo ${friendlyLabel(x, labels)}`;
+  }
+  return `${yCols
+    .slice(0, 2)
+    .map((c) => friendlyLabel(c, labels))
+    .join(" · ")}`;
 }
 
 function buildHeatmapOption(
@@ -664,9 +724,48 @@ function buildCandlestickOption(
     Number(r[ohlc.high!]) || 0,
   ]);
 
+  const volKey = Object.keys(data[0] || {}).find((c) =>
+    /volume|khoi_luong|khối lượng/i.test(c),
+  );
+  const volumes = volKey
+    ? rows.map((r) => Number(r[volKey]) || 0)
+    : null;
+
+  const series: SeriesOption[] = [
+    {
+      type: "candlestick",
+      data: values,
+      xAxisIndex: 0,
+      yAxisIndex: 0,
+      itemStyle: {
+        color: "#0f766e",
+        color0: "#b45309",
+        borderColor: "#0f766e",
+        borderColor0: "#b45309",
+      },
+    },
+  ];
+
+  if (volumes) {
+    series.push({
+      name: "Khối lượng",
+      type: "bar",
+      data: volumes,
+      xAxisIndex: 1,
+      yAxisIndex: 1,
+      itemStyle: { color: "rgba(15,118,110,0.35)" },
+    });
+  }
+
   return {
     animationDuration: 700,
-    grid: { left: 12, right: 16, top: 28, bottom: 40, containLabel: true },
+    axisPointer: { link: [{ xAxisIndex: "all" }] },
+    grid: volumes
+      ? [
+          { left: 12, right: 16, top: 28, height: "52%", containLabel: true },
+          { left: 12, right: 16, top: "68%", height: "22%", containLabel: true },
+        ]
+      : { left: 12, right: 16, top: 28, bottom: 40, containLabel: true },
     tooltip: {
       trigger: "axis",
       backgroundColor: "rgba(255,255,255,0.96)",
@@ -675,28 +774,223 @@ function buildCandlestickOption(
       textStyle: { color: "#0b1f2a", fontSize: 12 },
       formatter: (params) => {
         const list = Array.isArray(params) ? params : [params];
-        const p = list[0] as {
-          axisValue?: string;
-          value?: number[];
-        };
-        const v = p.value || [];
-        return `<b>${p.axisValue || ""}</b><br/>Mở: ${formatNumber(v[1], ohlc.open!)}<br/>Đóng: ${formatNumber(v[2], ohlc.close!)}<br/>Thấp: ${formatNumber(v[3], ohlc.low!)}<br/>Cao: ${formatNumber(v[4], ohlc.high!)}`;
+        const candle = list.find((p) => (p as { seriesType?: string }).seriesType === "candlestick") as
+          | { axisValue?: string; value?: number[] }
+          | undefined;
+        const vol = list.find((p) => (p as { seriesName?: string }).seriesName === "Khối lượng") as
+          | { value?: number }
+          | undefined;
+        const v = candle?.value || [];
+        let html = `<b>${candle?.axisValue || ""}</b><br/>Mở: ${formatNumber(v[1], ohlc.open!)}<br/>Đóng: ${formatNumber(v[2], ohlc.close!)}<br/>Thấp: ${formatNumber(v[3], ohlc.low!)}<br/>Cao: ${formatNumber(v[4], ohlc.high!)}`;
+        if (vol && volKey) {
+          html += `<br/>KL: ${formatNumber(vol.value, volKey)}`;
+        }
+        return html;
+      },
+    },
+    xAxis: volumes
+      ? [
+          {
+            type: "category",
+            data: categories,
+            gridIndex: 0,
+            axisLabel: { show: false },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+          {
+            type: "category",
+            data: categories,
+            gridIndex: 1,
+            axisLabel: { color: "#5b6b73", fontSize: 10 },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+        ]
+      : {
+          type: "category",
+          data: categories,
+          axisLabel: { color: "#5b6b73", fontSize: 11 },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+    yAxis: volumes
+      ? [
+          {
+            type: "value",
+            scale: true,
+            gridIndex: 0,
+            axisLabel: {
+              color: "#5b6b73",
+              fontSize: 11,
+              formatter: (v: number) => compactTick(v, ohlc.close!),
+            },
+            splitLine: {
+              lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+            },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+          {
+            type: "value",
+            gridIndex: 1,
+            axisLabel: {
+              color: "#5b6b73",
+              fontSize: 10,
+              formatter: (v: number) => compactTick(v, volKey || "volume"),
+            },
+            splitLine: { show: false },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+        ]
+      : {
+          type: "value",
+          scale: true,
+          axisLabel: {
+            color: "#5b6b73",
+            fontSize: 11,
+            formatter: (v: number) => compactTick(v, ohlc.close!),
+          },
+          splitLine: {
+            lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
+          },
+          axisLine: { show: false },
+          axisTick: { show: false },
+        },
+    series,
+  };
+}
+
+function buildRadarOption(
+  data: Record<string, unknown>[],
+  axes: RadarAxes,
+  labels?: Record<string, string>,
+): EChartsOption {
+  const indicators = axes.metrics.map((m) => {
+    const vals = data
+      .map((r) => Math.abs(Number(r[m])))
+      .filter((n) => Number.isFinite(n));
+    const max = vals.length ? Math.max(...vals) * 1.15 : 1;
+    return { name: friendlyLabel(m, labels), max: max || 1 };
+  });
+
+  const seriesData = data.slice(0, 8).map((row, i) => ({
+    name: String(row[axes.entity] ?? i + 1),
+    value: axes.metrics.map((m) => {
+      const n = Number(row[m]);
+      return Number.isFinite(n) ? n : 0;
+    }),
+    itemStyle: { color: COLORS[i % COLORS.length] },
+    areaStyle: { opacity: 0.12 },
+  }));
+
+  return {
+    animationDuration: 700,
+    legend: {
+      bottom: 0,
+      textStyle: { color: "#5b6b73", fontSize: 11 },
+    },
+    tooltip: { trigger: "item" },
+    radar: {
+      indicator: indicators,
+      center: ["50%", "48%"],
+      radius: "62%",
+      axisName: { color: "#5b6b73", fontSize: 11 },
+      splitArea: {
+        areaStyle: {
+          color: ["rgba(15,118,110,0.03)", "rgba(15,118,110,0.07)"],
+        },
+      },
+    },
+    series: [
+      {
+        type: "radar",
+        data: seriesData,
+      },
+    ],
+  };
+}
+
+function buildWaterfallOption(
+  data: Record<string, unknown>[],
+  axes: WaterfallAxes,
+  labels?: Record<string, string>,
+): EChartsOption {
+  const categories = data.map((r) => String(r[axes.category] ?? ""));
+  const values = data.map((r) => {
+    const n = Number(r[axes.value]);
+    return Number.isFinite(n) ? n : 0;
+  });
+
+  // Tất cả ≥0 (xếp hạng/cơ cấu): mỗi cột là phần đóng góp chồng từ 0.
+  // Có số âm: bridge waterfall (delta).
+  const allNonNeg = values.every((v) => v >= 0);
+  const helpers: number[] = [];
+  const rises: (number | "-")[] = [];
+  const falls: (number | "-")[] = [];
+  if (allNonNeg) {
+    let running = 0;
+    for (const v of values) {
+      helpers.push(running);
+      rises.push(v);
+      falls.push("-");
+      running += v;
+    }
+  } else {
+    let running = 0;
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (i === 0) {
+        helpers.push(0);
+        rises.push(v >= 0 ? v : "-");
+        falls.push(v < 0 ? -v : "-");
+        running = v;
+        continue;
+      }
+      if (v >= 0) {
+        helpers.push(running);
+        rises.push(v);
+        falls.push("-");
+        running += v;
+      } else {
+        helpers.push(running + v);
+        rises.push("-");
+        falls.push(-v);
+        running += v;
+      }
+    }
+  }
+
+  return {
+    animationDuration: 700,
+    grid: { left: 12, right: 16, top: 28, bottom: 48, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params) => {
+        const list = Array.isArray(params) ? params : [params];
+        const idx = (list[0] as { dataIndex?: number }).dataIndex ?? 0;
+        return `<b>${categories[idx]}</b><br/>${friendlyLabel(axes.value, labels)}: ${formatNumber(values[idx], axes.value)}`;
       },
     },
     xAxis: {
       type: "category",
       data: categories,
-      axisLabel: { color: "#5b6b73", fontSize: 11 },
+      axisLabel: {
+        color: "#5b6b73",
+        fontSize: 11,
+        rotate: categories.length > 6 ? 30 : 0,
+      },
       axisLine: { show: false },
       axisTick: { show: false },
     },
     yAxis: {
       type: "value",
-      scale: true,
       axisLabel: {
         color: "#5b6b73",
         fontSize: 11,
-        formatter: (v: number) => compactTick(v, ohlc.close!),
+        formatter: (v: number) => compactTick(v, axes.value),
       },
       splitLine: {
         lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
@@ -706,14 +1000,27 @@ function buildCandlestickOption(
     },
     series: [
       {
-        type: "candlestick",
-        data: values,
-        itemStyle: {
-          color: "#0f766e",
-          color0: "#b45309",
-          borderColor: "#0f766e",
-          borderColor0: "#b45309",
-        },
+        name: "helper",
+        type: "bar",
+        stack: "wf",
+        data: helpers,
+        itemStyle: { borderColor: "transparent", color: "transparent" },
+        emphasis: { itemStyle: { borderColor: "transparent", color: "transparent" } },
+        tooltip: { show: false },
+      },
+      {
+        name: "Tăng",
+        type: "bar",
+        stack: "wf",
+        data: rises,
+        itemStyle: { color: "#0f766e" },
+      },
+      {
+        name: "Giảm",
+        type: "bar",
+        stack: "wf",
+        data: falls,
+        itemStyle: { color: "#b45309" },
       },
     ],
   };
