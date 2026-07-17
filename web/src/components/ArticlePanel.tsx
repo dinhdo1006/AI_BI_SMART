@@ -3,7 +3,14 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Download, Loader2, Sparkles, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Loader2,
+  Sparkles,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import type { ArticleResponse } from "@/lib/types";
 import { downloadText } from "@/lib/format";
 
@@ -33,6 +40,9 @@ export function ArticlePanel({
       ? article.chart_preview_base64
       : `data:image/png;base64,${article.chart_preview_base64}`
     : null;
+
+  const fact = article.fact_check;
+  const factWarnings = (fact?.warnings || []).filter(Boolean);
 
   async function submitRevision() {
     const ask = instruction.trim();
@@ -102,6 +112,42 @@ export function ArticlePanel({
           </button>
         </div>
       </div>
+      {fact && fact.checked > 0 && (
+        <div
+          className={
+            fact.ok
+              ? "border-b border-line bg-teal/[0.06] px-4 py-2.5"
+              : "border-b border-copper/25 bg-copper-soft/40 px-4 py-2.5"
+          }
+        >
+          <div className="flex items-start gap-2 text-xs">
+            {fact.ok ? (
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal" />
+            ) : (
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-copper" />
+            )}
+            <div className="min-w-0 space-y-1 text-ink-soft">
+              <p className="font-semibold text-ink">
+                {fact.ok
+                  ? `Fact-check OK · ${fact.matched}/${fact.checked} số khớp nguồn`
+                  : `Fact-check cảnh báo · ${fact.matched}/${fact.checked} số khớp nguồn`}
+              </p>
+              {factWarnings.map((w) => (
+                <p key={w}>{w}</p>
+              ))}
+              {!fact.ok && (fact.unmatched?.length || 0) > 0 && (
+                <p className="text-ink-soft/80">
+                  Ví dụ:{" "}
+                  {fact.unmatched
+                    ?.slice(0, 4)
+                    .map((u) => u.raw)
+                    .join(", ")}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {onRevise && (
         <div className="border-b border-line bg-white/70 px-4 py-3">
           <label className="mb-1.5 block text-xs font-semibold text-ink">

@@ -236,6 +236,7 @@ export function ReportCard({
       articleMarkdown: current.article_markdown,
       instruction,
       insightSummary: resolvedInsight,
+      data: payload.data,
     });
     if (revised.error) return revised.error;
     updateMessage(messageId, {

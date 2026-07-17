@@ -249,6 +249,7 @@ export async function reviseArticle(params: {
   articleMarkdown: string;
   instruction: string;
   insightSummary?: string;
+  data?: Record<string, unknown>[];
 }): Promise<ArticleResponse> {
   const res = await fetch(apiUrl("/api/v1/revise_article"), {
     method: "POST",
@@ -259,6 +260,7 @@ export async function reviseArticle(params: {
       article_markdown: params.articleMarkdown,
       instruction: params.instruction,
       insight_summary: params.insightSummary || "",
+      data: params.data || [],
     }),
   });
   if (!res.ok) {

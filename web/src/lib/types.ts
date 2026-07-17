@@ -98,6 +98,20 @@ export type ChatResponse = {
   error?: string;
 };
 
+export type ArticleFactCheck = {
+  ok: boolean;
+  checked: number;
+  matched: number;
+  unmatched?: {
+    raw: string;
+    value: number;
+    unit?: string;
+    context?: string;
+  }[];
+  warnings?: string[];
+  source_count?: number;
+};
+
 export type ArticleResponse = {
   article_markdown: string;
   outline: Record<string, unknown>;
@@ -111,6 +125,7 @@ export type ArticleResponse = {
   template_id?: string;
   template_name?: string;
   generated_at?: string;
+  fact_check?: ArticleFactCheck | null;
   error?: string;
 };
 

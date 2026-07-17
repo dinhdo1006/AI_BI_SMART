@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from langchain_ollama import OllamaLLM
 
+from core.article_fact_check import fact_check_article
 from core.article_templates import (
     classify_article_template,
     format_template_brief,
@@ -537,6 +538,8 @@ def revise_article(
     instruction: str,
     question: str = "",
     insight_summary: str = "",
+    data: list[dict[str, Any]] | None = None,
+    stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Chỉnh sửa bài đã viết theo chỉ đạo của user.
@@ -585,11 +588,16 @@ Hãy chỉnh sửa bài Markdown hiện có theo YÊU CẦU SỬA BÀI.
         revised = article
     if not revised.lstrip().startswith("#"):
         revised = f"# Bài phân tích đã chỉnh sửa\n\n{revised}"
+    computed = stats
+    if computed is None and data:
+        computed = compute_insight_stats(data)
+    fact_check = fact_check_article(revised, data=data, stats=computed)
     return {
         "article_markdown": revised,
         "outline": {"revision_instruction": ask, "source": "revise_article"},
         "word_count": len(re.findall(r"\S+", revised)),
         "sections_written": len(re.findall(r"^##\s+", revised, flags=re.MULTILINE)),
+        "fact_check": fact_check,
     }
 
 
@@ -656,6 +664,8 @@ def generate_article(
         )
         sections_written = len(outline.get("sections") or [])
 
+    _progress("Đang kiểm tra số liệu với nguồn…")
+    fact_check = fact_check_article(article, data=data, stats=computed)
     _progress("Đã xong — đang trả kết quả…")
     now = datetime.now()
     generated_at = _report_timestamp(now)
@@ -672,4 +682,5 @@ def generate_article(
         "template_id": outline.get("template_id") or "",
         "template_name": outline.get("template_name") or "",
         "generated_at": generated_at,
+        "fact_check": fact_check,
     }

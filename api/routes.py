@@ -274,6 +274,14 @@ class ArticleReviseRequest(BaseModel):
         default="",
         description="Tóm tắt insight hiện có để AI sửa bài đúng ngữ cảnh",
     )
+    data: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Dữ liệu nguồn để fact-check sau khi sửa (optional)",
+    )
+    stats: dict[str, Any] | None = Field(
+        default=None,
+        description="Stats đã tính sẵn (optional)",
+    )
 
 
 class ArticleResponse(BaseModel):
@@ -289,6 +297,7 @@ class ArticleResponse(BaseModel):
     template_id: str = ""
     template_name: str = ""
     generated_at: str = ""
+    fact_check: dict[str, Any] | None = None
 
 
 class WordExportRequest(BaseModel):
@@ -575,6 +584,7 @@ def _build_article_response(
         template_id=str(result.get("template_id") or ""),
         template_name=str(result.get("template_name") or ""),
         generated_at=str(result.get("generated_at") or ""),
+        fact_check=result.get("fact_check"),
     )
 
 
@@ -582,11 +592,27 @@ def _build_article_response(
 def revise_article_endpoint(request: ArticleReviseRequest) -> ArticleResponse:
     """AI biên tập lại bài đã viết theo chỉ đạo của user."""
     try:
+        domain_config = load_domain_config(request.domain_id)
+    except FileNotFoundError:
+        domain_config = {}
+    except ValueError:
+        domain_config = {}
+
+    labels = (domain_config or {}).get("column_labels", {}) or {}
+    data_for_check = request.data or []
+    if labels and data_for_check:
+        data_for_check = [
+            {labels.get(k, k): v for k, v in row.items()} for row in data_for_check
+        ]
+
+    try:
         result = revise_article(
             article_markdown=request.article_markdown,
             instruction=request.instruction,
             question=request.question,
             insight_summary=request.insight_summary or "",
+            data=data_for_check or None,
+            stats=request.stats,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -603,6 +629,7 @@ def revise_article_endpoint(request: ArticleReviseRequest) -> ArticleResponse:
         sections_written=int(result.get("sections_written") or 0),
         domain_id=request.domain_id,
         question=request.question,
+        fact_check=result.get("fact_check"),
     )
 
 
