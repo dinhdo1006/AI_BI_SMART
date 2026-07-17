@@ -2,8 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, Loader2 } from "lucide-react";
-import { postChatStream } from "@/lib/api";
+import { ArrowUp, Loader2, Paperclip, X } from "lucide-react";
+import { postChatStream, postUploadAnalyze } from "@/lib/api";
 import type { HistoryMessage } from "@/lib/types";
 import { isVizOnlyRequest } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
@@ -47,8 +47,10 @@ export function ChatPanel() {
   const lastInsight = useChatStore((s) => s.lastInsight);
 
   const [input, setInput] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -62,9 +64,44 @@ export function ChatPanel() {
     }
   }
 
+  async function sendUpload(file: File, question: string) {
+    const q =
+      question.trim() || `Phân tích dữ liệu từ file ${file.name}`;
+    addUser(`${q}\n📎 ${file.name}`);
+    setInput("");
+    setUploadFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+
+    setLoading(true, "Đang đọc & phân tích file upload…");
+    try {
+      const payload = await postUploadAnalyze({
+        domainId,
+        question: q,
+        file,
+      });
+      payload.query = q;
+      payload.domain_id = domainId;
+      addAssistant(
+        briefFromPayload(payload.status || (payload.error ? "error" : "success")),
+        payload,
+      );
+    } catch (err) {
+      addAssistant(
+        err instanceof Error ? err.message : "Lỗi không xác định khi upload.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function sendQuery(raw: string) {
     const query = raw.trim();
-    if (!query || loading) return;
+    if (loading) return;
+    if (uploadFile) {
+      await sendUpload(uploadFile, query);
+      return;
+    }
+    if (!query) return;
 
     addUser(query);
     setInput("");
@@ -221,7 +258,43 @@ export function ChatPanel() {
         onSubmit={onSubmit}
         className="border-t border-line bg-white/55 p-3 md:p-4 backdrop-blur"
       >
+        {uploadFile && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-teal/25 bg-teal/[0.06] px-3 py-2 text-xs text-ink">
+            <Paperclip className="h-3.5 w-3.5 text-teal" />
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {uploadFile.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setUploadFile(null);
+                if (fileRef.current) fileRef.current.value = "";
+              }}
+              className="rounded-md p-1 text-ink-soft hover:text-copper"
+              aria-label="Bỏ file"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-2xl border border-line bg-white p-2 shadow-sm focus-within:border-teal/40 focus-within:ring-2 focus-within:ring-teal/15">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.tsv,.txt,.xlsx,.xls"
+            className="hidden"
+            onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={loading}
+            className="mb-1 ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-line bg-foam text-ink-soft transition hover:border-teal/35 hover:text-teal disabled:opacity-40"
+            aria-label="Đính kèm CSV/Excel"
+            title="Upload CSV/Excel để hỏi ad-hoc"
+          >
+            <Paperclip className="h-5 w-5" />
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -232,12 +305,16 @@ export function ChatPanel() {
               }
             }}
             rows={1}
-            placeholder="Nhập câu hỏi phân tích dữ liệu…"
+            placeholder={
+              uploadFile
+                ? "Nhập câu hỏi về file (hoặc Enter để phân tích nhanh)…"
+                : "Nhập câu hỏi phân tích dữ liệu…"
+            }
             className="max-h-36 min-h-[48px] flex-1 resize-none bg-transparent px-3 py-3 text-[15px] text-ink outline-none placeholder:text-ink-soft/45"
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={loading || (!input.trim() && !uploadFile)}
             className="mb-1 mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal text-white transition hover:bg-teal-deep disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Gửi"
           >
@@ -245,7 +322,7 @@ export function ChatPanel() {
           </button>
         </div>
         <p className="mt-2 px-1 text-[11px] text-ink-soft/55">
-          Enter để gửi · Shift+Enter xuống dòng
+          Enter để gửi · Shift+Enter xuống dòng · kẹp giấy để upload CSV/Excel
         </p>
       </form>
     </div>

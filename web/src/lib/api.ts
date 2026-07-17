@@ -83,6 +83,38 @@ export async function fetchDomainExplore(
   }
 }
 
+export async function postUploadAnalyze(params: {
+  domainId: string;
+  question: string;
+  file: File;
+}): Promise<ChatResponse> {
+  const body = new FormData();
+  body.append("domain_id", params.domainId);
+  body.append("question", params.question || "");
+  body.append("file", params.file);
+
+  const res = await fetch(apiUrl("/api/v1/analyze_upload"), {
+    method: "POST",
+    body,
+  });
+  if (!res.ok) {
+    const err = await parseError(res);
+    return {
+      status: "error",
+      domain_id: params.domainId,
+      query: params.question || params.file.name,
+      sql_query: "",
+      data: [],
+      insight: "",
+      row_count: 0,
+      chart_type: "table",
+      error: err,
+      error_detail: err,
+    };
+  }
+  return (await res.json()) as ChatResponse;
+}
+
 export async function postChat(params: {
   domainId: string;
   query: string;

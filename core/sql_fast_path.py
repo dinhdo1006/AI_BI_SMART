@@ -267,11 +267,22 @@ def _finance_fast_sql(user_query: str, norm: str) -> str | None:
     return None
 
 
-def _finance_pg_fast_sql(user_query: str, norm: str) -> str | None:
+def _finance_pg_fast_sql(
+    user_query: str,
+    norm: str,
+    *,
+    db_url: str | None = None,
+) -> str | None:
     """
-    Postgres / vnfdatadb: không map intent → SQL cứng.
-    Schema đúng + Schema RAG + entity resolver (mã từ DB) → LLM sinh SQL.
+    Postgres / vnfdatadb: chỉ fast-path các mẫu analytics rõ ràng
+    (peer-group cùng ngành, technical indicators). Các câu khác → LLM.
     """
+    del norm  # giữ chữ ký tương thích
+    from core.finance_analytics import try_finance_analytics_sql
+
+    hit = try_finance_analytics_sql(user_query, db_url=db_url)
+    if hit and hit.get("sql"):
+        return str(hit["sql"])
     return None
 
 
@@ -282,8 +293,7 @@ def try_fast_sql(
     db_url: str | None = None,
 ) -> str | None:
     """
-    Fast-path chỉ cho schema SQLite demo.
-    finance_vnfdata + PostgreSQL → None (tránh hardcode câu hỏi).
+    Fast-path: SQLite demo đầy đủ; Postgres chỉ peer-group / TA.
     """
     from core.db_dialect import detect_dialect
 
@@ -292,7 +302,7 @@ def try_fast_sql(
 
     if domain_id == "finance_vnfdata":
         if dialect == "postgresql":
-            return _finance_pg_fast_sql(user_query, norm)
+            return _finance_pg_fast_sql(user_query, norm, db_url=db_url)
         return _finance_fast_sql(user_query, norm)
 
     return None

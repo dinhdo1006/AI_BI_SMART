@@ -6,11 +6,12 @@ import time
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from core.config_loader import list_available_domains, load_domain_config
+from core.cross_domain import detect_cross_domain_request
 from core.dashboard_store import create_dashboard, get_dashboard
 from core.db_dialect import detect_dialect, dialect_label
 from core.db_executor import DbQueryError, execute_query
@@ -35,6 +36,7 @@ from core.schema_rag import build_rag_schema_context, is_schema_rag_enabled
 from core.sql_fast_path import try_fast_sql
 from core.entity_resolver import resolve_query_entities
 from core.few_shot_retriever import best_few_shot_sql
+from core.upload_analyzer import analyze_uploaded_table, parse_upload_bytes
 from core.viz_advisor import ChartType, is_viz_only_request, resolve_chart_type
 from core.chart_templates import match_chart_template, template_to_dict
 from core.sql_shape_validator import (
@@ -342,6 +344,73 @@ def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
         status=request.status,
     )
     return FeedbackResponse(ok=True)
+
+
+@router.post("/analyze_upload", response_model=ChatResponse)
+async def analyze_upload_endpoint(
+    domain_id: str = Form(...),
+    question: str = Form(""),
+    file: UploadFile = File(...),
+) -> ChatResponse:
+    """Phân tích CSV/Excel upload — không chạy SQL DB."""
+    filename = file.filename or "upload.csv"
+    lower = filename.lower()
+    if not lower.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=400,
+            detail="Chỉ hỗ trợ CSV/TSV/TXT/XLSX",
+        )
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="File rỗng")
+    if len(content) > 8_000_000:
+        raise HTTPException(status_code=400, detail="File quá lớn (tối đa 8MB)")
+
+    try:
+        rows = parse_upload_bytes(filename, content)
+        result = analyze_uploaded_table(
+            question=question,
+            rows=rows,
+            filename=filename,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Lỗi phân tích file: {exc}",
+        ) from exc
+
+    chart = result.get("chart_type") or "table"
+    if chart not in (
+        "bar",
+        "pie",
+        "line",
+        "area",
+        "combo",
+        "candlestick",
+        "heatmap",
+        "scatter",
+        "treemap",
+        "radar",
+        "waterfall",
+        "table",
+    ):
+        chart = "table"
+
+    return ChatResponse(
+        status="success",
+        domain_id=domain_id,
+        query=str(result.get("query") or question or filename),
+        sql_query=str(result.get("sql_query") or ""),
+        data=list(result.get("data") or []),
+        insight=str(result.get("insight") or ""),
+        row_count=int(result.get("row_count") or 0),
+        chart_type=chart,  # type: ignore[arg-type]
+        sql_source="upload",
+        data_as_of=_infer_data_as_of(list(result.get("data") or [])),
+        shape_notes=[f"Nguồn: file upload «{filename}»"],
+    )
 
 
 @router.get("/domains")
@@ -913,6 +982,28 @@ def chat(
     labels = domain_config.get("column_labels", {}) or {}
     entities = resolve_query_entities(request.query, domain_config.get("db_url"))
     entity_hint = str(entities.get("hint") or "")
+
+    cross = detect_cross_domain_request(
+        request.query,
+        available_domains=list_available_domains(),
+    )
+    if cross:
+        sql_source = "cross_domain_guard"
+        sql = "(không truy vấn — liên domain chưa sẵn sàng)"
+        _log_out("success", row_count=0)
+        return ChatResponse(
+            status="success",
+            domain_id=request.domain_id,
+            query=request.query,
+            sql_query=sql,
+            data=[],
+            insight=cross["message"],
+            row_count=0,
+            chart_type="table",
+            column_labels=labels,
+            intent=INTENT_OOS,
+            sql_source=sql_source,
+        )
 
     # Bước 2: Fast-path SQL (ổn định) hoặc Router → LLM
     sql = try_fast_sql(
