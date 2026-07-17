@@ -64,6 +64,8 @@ export type ChatResponse = {
   chart_type: ChartType;
   viz_only?: boolean;
   from_cache?: boolean;
+  /** exact | semantic — cách khớp cache (nếu from_cache) */
+  cache_match?: "exact" | "semantic" | string;
   column_labels?: Record<string, string>;
   failed_sql?: string | null;
   error_detail?: string | null;

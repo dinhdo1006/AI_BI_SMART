@@ -360,7 +360,9 @@ export function ReportCard({
               </span>
             )}
             {payload.from_cache && (
-              <span className="rounded-md bg-mist px-2 py-0.5">cache</span>
+              <span className="rounded-md bg-mist px-2 py-0.5">
+                {payload.cache_match === "semantic" ? "cache ~" : "cache"}
+              </span>
             )}
             {payload.viz_only && (
               <span className="rounded-md bg-mist px-2 py-0.5">viz only</span>

@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,84 @@ _LOCK = threading.Lock()
 
 _DEFAULT_TTL_SEC = 1800  # 30 phút
 _MAX_ENTRIES = 500
+_SEMANTIC_SCAN_LIMIT = 80
+_DEFAULT_JACCARD = 0.82
+
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "to",
+        "for",
+        "va",
+        "và",
+        "cua",
+        "của",
+        "cho",
+        "toi",
+        "tôi",
+        "ban",
+        "bạn",
+        "hay",
+        "hãy",
+        "giup",
+        "giúp",
+        "xem",
+        "voi",
+        "với",
+        "mot",
+        "một",
+        "cac",
+        "các",
+        "nhung",
+        "những",
+        "la",
+        "là",
+        "duoc",
+        "được",
+        "trong",
+        "nay",
+        "này",
+        "hom",
+        "hôm",
+        "làm",
+        "lam",
+        "sao",
+        "thế",
+        "nao",
+        "nào",
+        "đi",
+        "di",
+        "nhé",
+        "nhe",
+        "ạ",
+        "ơi",
+        "oi",
+        "xin",
+        "vui",
+        "long",
+        "lòng",
+    }
+)
+
+_SYNONYMS = {
+    "cophieu": "cổphiếu",
+    "cp": "cổphiếu",
+    "pe": "pe",
+    "pb": "pb",
+    "roe": "roe",
+    "vonhoa": "vốnhoá",
+    "bieudo": "biểuđồ",
+    "chart": "biểuđồ",
+    "tang": "tăng",
+    "giam": "giảm",
+    "homnay": "hômnay",
+    "thang": "tháng",
+    "quy": "quý",
+    "nam": "năm",
+}
 
 
 def _ttl_seconds() -> int:
@@ -36,6 +116,62 @@ def is_query_cache_enabled() -> bool:
     )
 
 
+def is_semantic_cache_enabled() -> bool:
+    return os.getenv("QUERY_CACHE_SEMANTIC", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _semantic_jaccard_threshold() -> float:
+    raw = os.getenv("QUERY_CACHE_SEMANTIC_THRESHOLD", str(_DEFAULT_JACCARD))
+    try:
+        return min(0.99, max(0.5, float(raw)))
+    except ValueError:
+        return _DEFAULT_JACCARD
+
+
+def _strip_diacritics(text: str) -> str:
+    norm = unicodedata.normalize("NFD", text)
+    return "".join(ch for ch in norm if unicodedata.category(ch) != "Mn")
+
+
+def semantic_tokens(query: str) -> frozenset[str]:
+    """Chuẩn hóa câu hỏi thành tập token nội dung (bỏ stopword, map synonym)."""
+    text = _normalize_query(query)
+    text = re.sub(r"\bp\s*/\s*e\b", " pe ", text)
+    text = re.sub(r"\bp\s*/\s*b\b", " pb ", text)
+    text = text.replace("/", " ")
+    text = re.sub(r"[^\w\s%.+-]", " ", text, flags=re.UNICODE)
+    tokens: set[str] = set()
+    for raw in text.split():
+        tok = raw.strip(".-_\\")
+        if len(tok) < 2 or tok in _STOPWORDS:
+            continue
+        flat = _strip_diacritics(tok)
+        mapped = _SYNONYMS.get(flat, flat)
+        if mapped in _STOPWORDS or len(mapped) < 2:
+            continue
+        tokens.add(mapped)
+    return frozenset(tokens)
+
+
+def semantic_fingerprint(query: str) -> str:
+    toks = sorted(semantic_tokens(query))
+    return " ".join(toks)
+
+
+def jaccard_similarity(a: frozenset[str], b: frozenset[str]) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    if inter == 0:
+        return 0.0
+    return inter / float(len(a | b))
+
+
 def _normalize_query(query: str) -> str:
     return " ".join(query.strip().casefold().split())
 
@@ -43,6 +179,12 @@ def _normalize_query(query: str) -> str:
 def make_cache_key(domain_id: str, query: str) -> str:
     """Khóa cache: domain + câu hỏi chuẩn hóa (không phụ thuộc lịch sử chat)."""
     payload = f"{domain_id}\0{_normalize_query(query)}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def make_semantic_key(domain_id: str, query: str) -> str:
+    """Khóa semantic: domain + fingerprint token (câu diễn đạt khác nhau cùng ý)."""
+    payload = f"{domain_id}\0sem\0{semantic_fingerprint(query)}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -66,8 +208,18 @@ def _init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    cols = {
+        str(r["name"])
+        for r in conn.execute("PRAGMA table_info(query_cache)").fetchall()
+    }
+    if "semantic_key" not in cols:
+        conn.execute("ALTER TABLE query_cache ADD COLUMN semantic_key TEXT")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_query_cache_expires ON query_cache(expires_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_query_cache_domain_sem "
+        "ON query_cache(domain_id, semantic_key)"
     )
     conn.commit()
 
@@ -98,13 +250,25 @@ def _enforce_max_entries(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _load_response(row: sqlite3.Row, *, semantic: bool) -> dict[str, Any] | None:
+    data = json.loads(row["response_json"])
+    if not isinstance(data, dict):
+        return None
+    data["from_cache"] = True
+    data["cache_match"] = "semantic" if semantic else "exact"
+    return data
+
+
 def get_cached_response(domain_id: str, query: str) -> dict[str, Any] | None:
     """Trả response dict nếu còn hạn; None nếu miss hoặc cache tắt."""
     if not is_query_cache_enabled():
         return None
 
     key = make_cache_key(domain_id, query)
+    sem_key = make_semantic_key(domain_id, query)
     now = time.time()
+    q_tokens = semantic_tokens(query)
+    threshold = _semantic_jaccard_threshold()
 
     with _LOCK:
         conn = _connect()
@@ -119,16 +283,49 @@ def get_cached_response(domain_id: str, query: str) -> dict[str, Any] | None:
                 """,
                 (key,),
             ).fetchone()
-            if not row:
-                return None
-            if float(row["expires_at"]) <= now:
+            if row and float(row["expires_at"]) > now:
+                return _load_response(row, semantic=False)
+            if row:
                 conn.execute("DELETE FROM query_cache WHERE cache_key = ?", (key,))
                 conn.commit()
+
+            if not is_semantic_cache_enabled() or not q_tokens:
                 return None
-            data = json.loads(row["response_json"])
-            if isinstance(data, dict):
-                data["from_cache"] = True
-                return data
+
+            row = conn.execute(
+                """
+                SELECT response_json, expires_at, query_text
+                FROM query_cache
+                WHERE domain_id = ? AND semantic_key = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (domain_id, sem_key),
+            ).fetchone()
+            if row and float(row["expires_at"]) > now:
+                return _load_response(row, semantic=True)
+
+            rows = conn.execute(
+                """
+                SELECT response_json, expires_at, query_text
+                FROM query_cache
+                WHERE domain_id = ? AND expires_at > ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (domain_id, now, _SEMANTIC_SCAN_LIMIT),
+            ).fetchall()
+            best: tuple[float, sqlite3.Row] | None = None
+            for cand in rows:
+                score = jaccard_similarity(
+                    q_tokens, semantic_tokens(str(cand["query_text"]))
+                )
+                if score < threshold:
+                    continue
+                if best is None or score > best[0]:
+                    best = (score, cand)
+            if best:
+                return _load_response(best[1], semantic=True)
             return None
         finally:
             conn.close()
@@ -161,9 +358,14 @@ def set_cached_response(domain_id: str, query: str, response: dict[str, Any]) ->
         return
 
     key = make_cache_key(domain_id, query)
+    sem_key = make_semantic_key(domain_id, query)
     now = time.time()
     ttl = _ttl_seconds()
-    payload = {k: v for k, v in response.items() if k != "from_cache"}
+    payload = {
+        k: v
+        for k, v in response.items()
+        if k not in ("from_cache", "cache_match")
+    }
     payload["from_cache"] = False
 
     with _LOCK:
@@ -173,12 +375,15 @@ def set_cached_response(domain_id: str, query: str, response: dict[str, Any]) ->
             conn.execute(
                 """
                 INSERT INTO query_cache (
-                    cache_key, domain_id, query_text, response_json, created_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    cache_key, domain_id, query_text, response_json,
+                    created_at, expires_at, semantic_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(cache_key) DO UPDATE SET
                     response_json = excluded.response_json,
                     created_at = excluded.created_at,
-                    expires_at = excluded.expires_at
+                    expires_at = excluded.expires_at,
+                    semantic_key = excluded.semantic_key,
+                    query_text = excluded.query_text
                 """,
                 (
                     key,
@@ -187,6 +392,7 @@ def set_cached_response(domain_id: str, query: str, response: dict[str, Any]) ->
                     json.dumps(payload, ensure_ascii=False, default=_json_default),
                     now,
                     now + ttl,
+                    sem_key,
                 ),
             )
             conn.commit()
