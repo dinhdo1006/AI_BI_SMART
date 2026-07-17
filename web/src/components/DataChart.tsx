@@ -9,6 +9,21 @@ import { Download } from "lucide-react";
 import type { ChartType, Forecast } from "@/lib/types";
 import { formatNumber, formatAxisLabel, friendlyLabel } from "@/lib/format";
 import {
+  CHART_COLORS,
+  CHART_HEIGHTS,
+  CHART_MUTED,
+  compactTick,
+  hexAlpha,
+  reportAxisTooltip,
+  reportCategoryAxis,
+  reportGrid,
+  reportLegend,
+  reportTooltipBase,
+  reportValueAxis,
+  shade,
+  withReportTheme,
+} from "@/lib/chartTheme";
+import {
   aggregatePieChartData,
   buildChartDensityInfo,
   buildChartPlan,
@@ -40,21 +55,13 @@ import {
 const ReactECharts = dynamic(() => import("echarts-for-react"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[310px] items-center justify-center text-sm text-ink-soft">
+    <div className="flex h-[340px] items-center justify-center text-sm text-ink-soft">
       Đang tải biểu đồ…
     </div>
   ),
 });
 
-const COLORS = [
-  "#0f766e",
-  "#b45309",
-  "#1c3a4a",
-  "#0e7490",
-  "#a16207",
-  "#047857",
-  "#57534e",
-];
+const COLORS = [...CHART_COLORS];
 
 export type DataChartHandle = {
   getPngBase64: () => string | null;
@@ -408,8 +415,8 @@ export function DataChart({
           effectiveType === "radar" ||
           effectiveType === "candlestick"
         ? hasDataZoom
-          ? 420
-          : 380
+          ? CHART_HEIGHTS.candlestick
+          : CHART_HEIGHTS.radar
         : horizontal
           ? Math.min(
               CHART_DENSE_THRESHOLDS.horizontalBarMaxHeight,
@@ -419,8 +426,8 @@ export function DataChart({
               ),
             )
           : hasDataZoom
-            ? 360
-            : 310;
+            ? CHART_HEIGHTS.withZoom
+            : CHART_HEIGHTS.default;
   const title = chartTitle({
     effectiveType,
     ohlc,
@@ -435,9 +442,9 @@ export function DataChart({
   });
 
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-gradient-to-br from-white via-foam/80 to-mist/40 p-3 shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-line bg-gradient-to-br from-white via-foam/90 to-mist/50 p-3 shadow-sm">
       <div className="mb-2 flex items-center justify-between gap-2 px-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-soft/65">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-soft/70">
           {title}
         </p>
         <button
@@ -463,7 +470,7 @@ export function DataChart({
       )}
 
       <ReactECharts
-        option={option}
+        option={withReportTheme(option)}
         style={{ height, width: "100%" }}
         opts={{ renderer: "canvas" }}
         notMerge
@@ -765,7 +772,7 @@ function buildScatterOption(
         return `${p.marker || ""} ${title}${friendlyLabel(axes.x, labels)}: <b>${formatNumber(v[0], axes.x)}</b><br/>${friendlyLabel(axes.y, labels)}: <b>${formatNumber(v[1], axes.y)}</b>`;
       },
     },
-    legend: legendOpt(labels),
+    legend: reportLegend(labels),
     xAxis: {
       type: "value",
       name: friendlyLabel(axes.x, labels),
@@ -1376,7 +1383,9 @@ function buildOption({
   const showLabels = chartData.length <= 10;
   const valueFormatCol =
     chartPlan?.mode === "groupBy" ? chartPlan.yCols[0] : undefined;
-  const tip = sharedTooltip(labels, valueFormatCol);
+  const tip = reportAxisTooltip(labels, valueFormatCol, {
+    crosshair: isTimeSeries || type === "line" || type === "area",
+  });
 
   if (type === "pie") {
     const pieY = yCols[0];
@@ -1384,11 +1393,8 @@ function buildOption({
     return {
       color: COLORS,
       tooltip: {
+        ...reportTooltipBase(),
         trigger: "item",
-        backgroundColor: "rgba(255,255,255,0.96)",
-        borderColor: "rgba(11,31,42,0.1)",
-        borderWidth: 1,
-        textStyle: { color: "#0b1f2a", fontSize: 12 },
         formatter: (params) => {
           const p = params as {
             name?: string;
@@ -1399,19 +1405,15 @@ function buildOption({
           return `${p.marker || ""} <b>${p.name}</b><br/>${formatNumber(p.value, pieY)} (${(p.percent ?? 0).toFixed(1)}%)`;
         },
       },
-      legend: {
-        bottom: 0,
-        type: pieRows.length > 8 ? "scroll" : "plain",
-        textStyle: { color: "#5b6b73", fontSize: 11 },
-      },
+      legend: reportLegend(labels, { many: pieRows.length > 8 }),
       series: [
         {
           type: "pie",
-          radius: ["42%", "68%"],
-          center: ["50%", "46%"],
+          radius: ["44%", "70%"],
+          center: ["50%", "48%"],
           avoidLabelOverlap: true,
           itemStyle: {
-            borderRadius: 6,
+            borderRadius: 5,
             borderColor: "#fff",
             borderWidth: 2,
           },
@@ -1419,8 +1421,10 @@ function buildOption({
             show: pieRows.length <= 10,
             formatter: "{b}\n{d}%",
             fontSize: 11,
-            color: "#5b6b73",
+            color: CHART_MUTED,
+            lineHeight: 16,
           },
+          labelLine: { length: 12, length2: 8 },
           data: pieRows.map((d, i) => ({
             name: String(d.name ?? ""),
             value: Number(d[pieY]) || 0,
@@ -1442,20 +1446,12 @@ function buildOption({
         ? "combo"
         : type;
 
-  const axisLabel = {
-    color: "#5b6b73",
-    fontSize: 11,
-  };
-
-  const baseGrid = horizontal
-    ? { left: 88, right: 28, top: 36, bottom: 28, containLabel: false }
-    : {
-        left: 12,
-        right: isCombo ? 48 : 16,
-        top: 40,
-        bottom: 48,
-        containLabel: true,
-      };
+  const isStack100 = chartPlan?.barMode === "stack100";
+  const seriesKeys =
+    chartPlan?.mode === "groupBy"
+      ? chartPlan.seriesKeys
+      : yCols;
+  const manySeries = seriesKeys.length > 4;
 
   const series = buildSeries({
     kind: chartKind === "combo" ? "combo" : chartKind,
@@ -1470,38 +1466,35 @@ function buildOption({
     chartPlan,
   });
 
-  const isStack100 = chartPlan?.barMode === "stack100";
+  const baseGrid = reportGrid({
+    horizontal,
+    dense,
+    dualY: isCombo,
+    hasLegend: true,
+  });
 
   if (horizontal) {
     return {
       color: COLORS,
-      animationDuration: 700,
+      animationDuration: 650,
       ...(dataZoom ? { dataZoom } : {}),
-      grid: {
-        ...baseGrid,
-        right: dense ? 36 : baseGrid.right,
-      },
+      grid: baseGrid,
       tooltip: tip,
-      legend: legendOpt(labels),
+      legend: reportLegend(labels, { many: manySeries }),
       xAxis: {
-        type: "value",
-        max: isStack100 ? 100 : undefined,
+        ...reportValueAxis(yCols[0], { max: isStack100 ? 100 : undefined }),
         axisLabel: {
-          ...axisLabel,
+          ...axisLabelFromTheme(isStack100),
           formatter: (v: number) =>
             isStack100 ? `${v.toFixed(0)}%` : compactTick(v, yCols[0]),
         },
-        splitLine: {
-          lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
-        },
-        axisLine: { show: false },
-        axisTick: { show: false },
       },
       yAxis: {
         type: "category",
         data: categories,
         axisLabel: {
-          ...axisLabel,
+          color: CHART_MUTED,
+          fontSize: 11,
           interval: dense ? ("auto" as const) : 0,
           hideOverlap: true,
         },
@@ -1514,73 +1507,46 @@ function buildOption({
 
   return {
     color: COLORS,
-    animationDuration: 700,
+    animationDuration: 650,
     ...(dataZoom ? { dataZoom } : {}),
-    grid: {
-      ...baseGrid,
-      bottom: dense ? 72 : baseGrid.bottom,
-    },
+    grid: baseGrid,
     tooltip: tip,
-    legend: legendOpt(labels),
-    xAxis: {
-      type: "category",
-      data: categories,
+    legend: reportLegend(labels, { many: manySeries }),
+    xAxis: reportCategoryAxis(categories, {
       name: xLabel,
-      nameLocation: "middle",
-      nameGap: 28,
-      nameTextStyle: { color: "#5b6b73", fontSize: 10, opacity: 0 },
-      axisLabel: {
-        ...axisLabel,
-        rotate: categories.length > 8 ? 30 : 0,
-        interval: dense ? ("auto" as const) : 0,
-        hideOverlap: true,
-      },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
+      dense,
+    }),
     yAxis: isCombo
       ? [
+          reportValueAxis(yCols[0]),
           {
-            type: "value",
-            scale: true,
-            axisLabel: {
-              ...axisLabel,
-              formatter: (v: number) => compactTick(v, yCols[0]),
-            },
-            splitLine: {
-              lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
-            },
-            axisLine: { show: false },
-            axisTick: { show: false },
-          },
-          {
-            type: "value",
-            scale: true,
-            axisLabel: {
-              ...axisLabel,
-              formatter: (v: number) => compactTick(v, yCols[1]),
-            },
+            ...reportValueAxis(yCols[1]),
             splitLine: { show: false },
-            axisLine: { show: false },
-            axisTick: { show: false },
           },
         ]
       : {
-          type: "value",
-          max: isStack100 ? 100 : undefined,
-          scale: !isStack100,
+          ...reportValueAxis(yCols[0], {
+            max: isStack100 ? 100 : undefined,
+            scale: !isStack100,
+          }),
           axisLabel: {
-            ...axisLabel,
+            color: CHART_MUTED,
+            fontSize: 11,
             formatter: (v: number) =>
               isStack100 ? `${v.toFixed(0)}%` : compactTick(v, yCols[0]),
           },
-          splitLine: {
-            lineStyle: { color: "rgba(11,31,42,0.07)", type: "dashed" },
-          },
-          axisLine: { show: false },
-          axisTick: { show: false },
         },
     series,
+  };
+}
+
+function axisLabelFromTheme(isPct: boolean) {
+  return {
+    color: CHART_MUTED,
+    fontSize: 11,
+    formatter: isPct
+      ? (v: number) => `${v.toFixed(0)}%`
+      : undefined,
   };
 }
 
@@ -1625,12 +1591,12 @@ function buildSeries({
         data: dataVals,
         smooth: !barLike,
         symbol: barLike ? undefined : "circle",
-        symbolSize: barLike ? undefined : 6,
-        showSymbol: !barLike && (showLabels || chartData.length <= 24),
+        symbolSize: barLike ? undefined : i === 0 ? 7 : 5,
+        showSymbol: !barLike && (showLabels || chartData.length <= 18),
         emphasis: { focus: "series" as const },
         barMaxWidth: barLike ? 28 : undefined,
         barGap: barLike ? "8%" : undefined,
-        lineStyle: barLike ? undefined : { width: 2.4, color },
+        lineStyle: barLike ? undefined : { width: i === 0 ? 2.8 : 2.2, color },
         itemStyle: barLike
           ? {
               color: {
@@ -1745,17 +1711,51 @@ function buildSeries({
         fcMetric && y === fcMetric && fcLen
           ? [...hist, ...padNulls(fcLen)]
           : hist;
+      const showMark =
+        yCols.length === 1 &&
+        kind === "line" &&
+        !fcLen &&
+        hist.filter((v) => v != null).length >= 5;
       return {
         name: friendlyLabel(y, labels),
         type: "line" as const,
         data: dataVals,
         smooth: true,
         symbol: "circle",
-        symbolSize: 6,
-        showSymbol: showLabels || chartData.length <= 24,
+        symbolSize: i === 0 ? 7 : 5,
+        showSymbol: showLabels || chartData.length <= 18,
         emphasis: { focus: "series" as const },
-        lineStyle: { width: 2.4, color },
+        lineStyle: { width: i === 0 ? 2.8 : 2.2, color },
         itemStyle: { color },
+        markPoint: showMark
+          ? {
+              symbol: "pin",
+              symbolSize: 42,
+              label: {
+                fontSize: 10,
+                color: "#fff",
+                formatter: (p: CallbackDataParams) =>
+                  formatNumber(paramValue(p), y),
+              },
+              data: [
+                { type: "max", name: "Cao nhất", itemStyle: { color: "#0f766e" } },
+                { type: "min", name: "Thấp nhất", itemStyle: { color: "#b45309" } },
+              ],
+            }
+          : undefined,
+        markLine: showMark
+          ? {
+              silent: true,
+              symbol: "none",
+              lineStyle: { type: "dashed", color: "rgba(15,118,110,0.35)", width: 1 },
+              data: [{ type: "average", name: "TB" }],
+              label: {
+                formatter: "TB",
+                color: CHART_MUTED,
+                fontSize: 10,
+              },
+            }
+          : undefined,
         areaStyle:
           kind === "area"
             ? {
@@ -1766,7 +1766,7 @@ function buildSeries({
                   x2: 0,
                   y2: 1,
                   colorStops: [
-                    { offset: 0, color: hexAlpha(color, 0.4) },
+                    { offset: 0, color: hexAlpha(color, 0.38) },
                     { offset: 1, color: hexAlpha(color, 0.02) },
                   ],
                 },
@@ -1777,7 +1777,7 @@ function buildSeries({
               show: true,
               position: "top" as const,
               fontSize: 10,
-              color: "#5b6b73",
+              color: CHART_MUTED,
               formatter: (p: CallbackDataParams) =>
                 formatNumber(paramValue(p), y),
             }
@@ -1877,76 +1877,4 @@ function paramValue(p: CallbackDataParams): unknown {
   const v = p.value;
   if (Array.isArray(v)) return v[v.length - 1];
   return v;
-}
-
-function sharedTooltip(
-  labels?: Record<string, string>,
-  valueFormatCol?: string,
-): EChartsOption["tooltip"] {
-  return {
-    trigger: "axis",
-    backgroundColor: "rgba(255,255,255,0.96)",
-    borderColor: "rgba(11,31,42,0.1)",
-    borderWidth: 1,
-    textStyle: { color: "#0b1f2a", fontSize: 12 },
-    axisPointer: { type: "shadow" },
-    formatter: (params) => {
-      const list = Array.isArray(params) ? params : [params];
-      if (!list.length) return "";
-      const title = String(
-        (list[0] as { axisValueLabel?: string; name?: string }).axisValueLabel ||
-          (list[0] as { name?: string }).name ||
-          "",
-      );
-      const rows = list
-        .map((p) => {
-          const item = p as {
-            marker?: string;
-            seriesName?: string;
-            value?: number | null;
-          };
-          const key = item.seriesName || "";
-          const fmtCol = valueFormatCol || key;
-          return `${item.marker || ""} ${friendlyLabel(key, labels)}: <b>${formatNumber(item.value, fmtCol)}</b>`;
-        })
-        .join("<br/>");
-      return `<div style="margin-bottom:4px;font-weight:600">${title}</div>${rows}`;
-    },
-  };
-}
-
-function legendOpt(labels?: Record<string, string>): EChartsOption["legend"] {
-  return {
-    top: 0,
-    textStyle: { color: "#5b6b73", fontSize: 11 },
-    formatter: (name) => friendlyLabel(name, labels),
-  };
-}
-
-function compactTick(v: number, colHint: string): string {
-  if (!Number.isFinite(v)) return "";
-  if (Math.abs(v) >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}tỷ`;
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}tr`;
-  if (Math.abs(v) >= 10_000)
-    return v.toLocaleString("vi-VN", { maximumFractionDigits: 0 });
-  if (/roe|roa|pct|percent/i.test(colHint)) return `${v}`;
-  return String(Number(v.toPrecision(3)));
-}
-
-function hexAlpha(hex: string, alpha: number): string {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function shade(hex: string, percent: number): string {
-  const h = hex.replace("#", "");
-  const num = parseInt(h, 16);
-  const amt = Math.round(2.55 * percent);
-  const r = Math.min(255, Math.max(0, (num >> 16) + amt));
-  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt));
-  const b = Math.min(255, Math.max(0, (num & 0xff) + amt));
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
