@@ -42,7 +42,7 @@ def test_suggest_many_metrics_radar_or_heatmap():
         for i, t in enumerate(["FPT", "VCB", "HPG", "ACB"])
     ]
     chart = suggest_chart_from_data(data)
-    assert chart in {"radar", "heatmap"}
+    assert chart == "radar"
     assert "radar" in compatible_charts(data)
 
 

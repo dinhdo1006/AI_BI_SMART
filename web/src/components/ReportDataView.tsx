@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BarChart3, Table2 } from "lucide-react";
-import type { ChartType, Forecast } from "@/lib/types";
+import { BarChart3, Info, Table2 } from "lucide-react";
+import type { ChartType, ChatResponse, Forecast } from "@/lib/types";
 import {
   CHART_TYPE_LABELS,
   explainChartChoice,
@@ -14,17 +14,28 @@ import { DataTable } from "@/components/DataTable";
 
 type ViewTab = "chart" | "table" | "both";
 
+function formatDataAsOf(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 function ChartExplainBanner({
   explanation,
+  templateName,
   onPickChart,
 }: {
   explanation: ChartChoiceExplanation;
+  templateName?: string | null;
   onPickChart?: (type: ChartType) => void;
 }) {
   return (
     <div className="rounded-xl border border-teal/20 bg-teal/[0.06] px-4 py-3">
       <p className="text-sm leading-relaxed text-ink">
         <span className="font-semibold text-teal">{explanation.chartLabel}</span>
+        {templateName ? (
+          <span className="text-ink-soft"> · mẫu «{templateName}»</span>
+        ) : null}
         {" — "}
         {explanation.message}
       </p>
@@ -50,12 +61,57 @@ function ChartExplainBanner({
   );
 }
 
+function TrustStrip({
+  dataAsOf,
+  shapeNotes,
+  priceSources,
+}: {
+  dataAsOf?: string | null;
+  shapeNotes?: string[];
+  priceSources?: string[];
+}) {
+  const notes = (shapeNotes || []).filter(Boolean);
+  const sources = priceSources || [];
+  if (!dataAsOf && !notes.length && !sources.length) return null;
+
+  return (
+    <div className="flex flex-wrap items-start gap-2 rounded-xl border border-line bg-foam/50 px-3 py-2 text-[12px] text-ink-soft">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal" />
+      <div className="min-w-0 flex-1 space-y-1">
+        {dataAsOf && (
+          <p>
+            Số liệu tính đến{" "}
+            <span className="font-semibold text-ink">
+              {formatDataAsOf(dataAsOf)}
+            </span>
+          </p>
+        )}
+        {sources.length > 0 && (
+          <p>
+            Nguồn giá:{" "}
+            <span className="font-semibold text-ink">{sources.join(", ")}</span>
+          </p>
+        )}
+        {notes.map((n) => (
+          <p key={n} className="text-copper">
+            {n}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ReportDataView({
   data,
   chartType,
   labels,
   forecast,
   query,
+  dataAsOf,
+  chartTemplate,
+  shapeNotes,
+  trustMeta,
   onChartReady,
   onChartChange,
 }: {
@@ -64,6 +120,10 @@ export function ReportDataView({
   labels?: Record<string, string>;
   forecast?: Forecast | null;
   query?: string;
+  dataAsOf?: string | null;
+  chartTemplate?: ChatResponse["chart_template"];
+  shapeNotes?: string[];
+  trustMeta?: ChatResponse["trust_meta"];
   onChartReady?: (getPng: () => string | null) => void;
   onChartChange?: (type: ChartType) => void;
 }) {
@@ -77,9 +137,20 @@ export function ReportDataView({
     [chartType, data, query],
   );
 
+  const mergedNotes = useMemo(() => {
+    const fromPayload = shapeNotes || [];
+    const fromTrust = trustMeta?.shape_notes || [];
+    return [...new Set([...fromPayload, ...fromTrust])];
+  }, [shapeNotes, trustMeta?.shape_notes]);
+
   if (chartType === "table") {
     return (
       <div className="space-y-3">
+        <TrustStrip
+          dataAsOf={dataAsOf}
+          shapeNotes={mergedNotes}
+          priceSources={trustMeta?.price_sources}
+        />
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-soft/70">
           <Table2 className="h-3.5 w-3.5" />
           Số liệu chi tiết
@@ -118,9 +189,16 @@ export function ReportDataView({
         ))}
       </div>
 
+      <TrustStrip
+        dataAsOf={dataAsOf}
+        shapeNotes={mergedNotes}
+        priceSources={trustMeta?.price_sources}
+      />
+
       {explanation && (
         <ChartExplainBanner
           explanation={explanation}
+          templateName={chartTemplate?.name}
           onPickChart={onChartChange}
         />
       )}

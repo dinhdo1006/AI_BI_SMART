@@ -536,8 +536,12 @@ def resolve_chart_type(
     user_query: str,
     history: list[dict[str, str]] | None = None,
     data: list[dict[str, Any]] | None = None,
+    preferred: ChartType | None = None,
 ) -> ChartType:
-    """Ưu tiên: yêu cầu tường minh (nếu data cho phép) → history → suy từ shape data."""
+    """
+    Ưu tiên: yêu cầu tường minh → preferred (template) → history → shape data.
+    preferred: chart từ finance ChartTemplate (Tier 4).
+    """
     rows = data or []
     allowed = set(compatible_charts(rows)) if rows else set()
 
@@ -547,6 +551,18 @@ def resolve_chart_type(
             return explicit
         # User xin loại không vẽ được → fallback theo shape
         return suggest_chart_from_data(rows, user_query)
+
+    # Template CP: ưu tiên trước history nếu data cho phép
+    if preferred:
+        if not rows or preferred in allowed or preferred == "table":
+            return preferred
+        # Template muốn candlestick nhưng thiếu OHLC → line; radar thiếu → bar
+        if preferred == "candlestick" and "line" in allowed:
+            return "line"
+        if preferred == "radar" and "bar" in allowed:
+            return "bar"
+        if preferred == "line" and "bar" in allowed:
+            return "line" if "line" in allowed else "bar"
 
     if history:
         for msg in reversed(history):

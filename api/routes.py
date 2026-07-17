@@ -36,6 +36,12 @@ from core.sql_fast_path import try_fast_sql
 from core.entity_resolver import resolve_query_entities
 from core.few_shot_retriever import best_few_shot_sql
 from core.viz_advisor import ChartType, is_viz_only_request, resolve_chart_type
+from core.chart_templates import match_chart_template, template_to_dict
+from core.sql_shape_validator import (
+    build_trust_meta,
+    normalize_rows_for_chart,
+    validate_shape,
+)
 from utils.report_export import create_word_report_api
 
 import json
@@ -130,6 +136,32 @@ def _infer_data_as_of(rows: list[dict[str, Any]]) -> str | None:
     return best
 
 
+def _shape_hint_for_sql(domain_id: str, query: str) -> str | None:
+    """Gợi ý cột/shape cho SQLCoder từ ChartTemplate (Tier 4)."""
+    tpl = match_chart_template(query, domain_id=domain_id)
+    if not tpl:
+        return None
+    parts = [
+        f"Template: {tpl.id} ({tpl.name}) → prefer chart={tpl.chart_type}.",
+        f"Shape: {tpl.shape}.",
+    ]
+    if tpl.required_cols:
+        parts.append(f"Required columns: {', '.join(tpl.required_cols)}.")
+    if tpl.preferred_cols:
+        parts.append(f"Preferred columns: {', '.join(tpl.preferred_cols)}.")
+    if tpl.shape == "valuation_snapshot":
+        parts.append(
+            "Use DISTINCT ON (ticker/symbol) … ORDER BY ticker, calc_date DESC "
+            "so each ticker has one latest row. Avoid duplicate calc_dates per ticker."
+        )
+    if tpl.shape in ("price_timeseries", "price_ohlc", "multi_ticker_price"):
+        parts.append(
+            "Select trade_date + prices; omit company_name unless user asked for names. "
+            "ORDER BY trade_date ASC (or DESC with LIMIT for recent sessions)."
+        )
+    return " ".join(parts)
+
+
 class HistoryMessage(BaseModel):
     """Một tin nhắn trong lịch sử chat (dùng cho ngữ cảnh LLM)."""
 
@@ -200,6 +232,11 @@ class ChatResponse(BaseModel):
     period_comparison: dict[str, Any] | None = None
     # Dự báo tuyến tính ngắn hạn (line/area overlay)
     forecast: dict[str, Any] | None = None
+    # Tier 4: template CP khớp câu hỏi (id/name/chart_type/shape)
+    chart_template: dict[str, Any] | None = None
+    # Tier 4: ghi chú shape + nguồn giá (trust)
+    trust_meta: dict[str, Any] | None = None
+    shape_notes: list[str] = Field(default_factory=list)
 
 
 class ArticleRequest(BaseModel):
@@ -918,6 +955,7 @@ def chat(
                 request.query,
                 history=history_dicts,
                 entity_hint=entity_hint,
+                shape_hint=_shape_hint_for_sql(request.domain_id, request.query),
             )
             latency_llm_ms += (time.perf_counter() - t_llm) * 1000
         except Exception as exc:
@@ -1064,8 +1102,26 @@ def chat(
             "**Gợi ý:** AI phân tích tạm thời chậm — bạn vẫn có thể tải CSV/Word."
         )
 
-    # Bước 5: Chọn loại biểu đồ (keyword user ưu tiên hơn auto)
-    chart = resolve_chart_type(request.query, history=history_dicts, data=rows)
+    # Bước 5: Template CP + chuẩn hóa shape + chọn biểu đồ
+    tpl = match_chart_template(request.query, domain_id=request.domain_id)
+    shape_notes = validate_shape(rows, tpl)
+    chart_rows, normalize_actions = normalize_rows_for_chart(rows, tpl)
+    if normalize_actions:
+        shape_notes = [*shape_notes, *normalize_actions]
+        rows = chart_rows
+
+    chart = resolve_chart_type(
+        request.query,
+        history=history_dicts,
+        data=rows,
+        preferred=tpl.chart_type if tpl else None,
+    )
+    trust = build_trust_meta(
+        rows,
+        sql_source=sql_source,
+        template=tpl,
+        shape_notes=shape_notes,
+    )
 
     _log_out("success", row_count=len(rows))
     resp = ChatResponse(
@@ -1084,6 +1140,9 @@ def chat(
         data_as_of=_infer_data_as_of(rows),
         period_comparison=period,
         forecast=forecast,
+        chart_template=template_to_dict(tpl),
+        trust_meta=trust,
+        shape_notes=shape_notes,
     )
     set_cached_response(
         request.domain_id, request.query, resp.model_dump(mode="json")

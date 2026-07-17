@@ -76,6 +76,25 @@ export type ChatResponse = {
   period_comparison?: PeriodComparison | null;
   /** Dự báo tuyến tính ngắn hạn */
   forecast?: Forecast | null;
+  /** Template CP khớp câu hỏi (Tier 4) */
+  chart_template?: {
+    id: string;
+    name: string;
+    chart_type: ChartType;
+    shape?: string;
+    description?: string;
+  } | null;
+  /** Metadata tin cậy: nguồn giá, shape notes… */
+  trust_meta?: {
+    sql_source?: string | null;
+    chart_template?: string | null;
+    chart_template_name?: string | null;
+    shape_kind?: string | null;
+    shape_notes?: string[];
+    price_sources?: string[];
+    has_price_source?: boolean;
+  } | null;
+  shape_notes?: string[];
   error?: string;
 };
 

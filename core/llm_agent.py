@@ -223,6 +223,7 @@ def generate_sql(
     user_query: str,
     history: list[dict[str, str]] | None = None,
     entity_hint: str | None = None,
+    shape_hint: str | None = None,
 ) -> str:
     """
     Gọi Ollama để sinh SQL từ câu hỏi người dùng (có ngữ cảnh history).
@@ -232,6 +233,7 @@ def generate_sql(
         user_query: Câu hỏi tiếng Việt hiện tại của user.
         history: Lịch sử trò chuyện gần đây (role + content), có thể rỗng.
         entity_hint: Gợi ý entity đã resolve từ DB (mã CK…), không bắt buộc.
+        shape_hint: Gợi ý shape cột từ ChartTemplate (Tier 4).
 
     Returns:
         Chuỗi SQL thô (không markdown). Guardrail SELECT-only vẫn áp dụng ở db_executor.
@@ -241,6 +243,8 @@ def generate_sql(
     hint_block = ""
     if entity_hint and entity_hint.strip():
         hint_block = f"=== ENTITY HINTS ===\n{entity_hint.strip()}\n\n"
+    if shape_hint and shape_hint.strip():
+        hint_block += f"=== RESULT SHAPE HINT ===\n{shape_hint.strip()}\n\n"
 
     # Header tiếng Anh — giảm nguy cơ SQLCoder echo chữ Việt vào SQL
     full_prompt = (

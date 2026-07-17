@@ -50,6 +50,15 @@ function confidenceBadge(source: string | null | undefined): {
   if (source === "fast_path" || source === "fast_path_fallback") {
     return { label: "Tin cậy cao", className: "bg-teal/10 text-teal" };
   }
+  if (source === "few_shot_retrieval") {
+    return {
+      label: "Mẫu chuẩn (few-shot)",
+      className: "bg-teal/10 text-teal",
+    };
+  }
+  if (source === "cache") {
+    return { label: "Từ cache", className: "bg-mist text-ink-soft" };
+  }
   if (source === "llm" || source === "llm_followup") {
     return {
       label: "Ước tính — kiểm tra SQL",
@@ -340,6 +349,17 @@ export function ReportCard({
                 Dữ liệu tới {formatDataAsOf(payload.data_as_of)}
               </span>
             )}
+            {payload.chart_template?.name && (
+              <span className="rounded-md bg-teal/10 px-2 py-0.5 text-teal">
+                Mẫu: {payload.chart_template.name}
+              </span>
+            )}
+            {payload.trust_meta?.price_sources &&
+              payload.trust_meta.price_sources.length > 0 && (
+                <span className="rounded-md bg-mist px-2 py-0.5">
+                  Nguồn: {payload.trust_meta.price_sources.join(", ")}
+                </span>
+              )}
           </div>
         </div>
 
@@ -393,6 +413,10 @@ export function ReportCard({
             labels={labels}
             forecast={payload.forecast}
             query={payload.query}
+            dataAsOf={payload.data_as_of}
+            chartTemplate={payload.chart_template}
+            shapeNotes={payload.shape_notes}
+            trustMeta={payload.trust_meta}
             onChartReady={onChartReady}
             onChartChange={(t) => void onChartChange(t)}
           />
