@@ -745,9 +745,12 @@ export function pickRadarAxes(
   const entity =
     categorical.find((c) => ENTITY_COL.test(c)) ||
     categorical.find((c) => !/id$/i.test(c));
-  const metrics = [...numeric]
-    .sort((a, b) => metricScore(b) - metricScore(a))
-    .slice(0, 8);
+  const ranked = [...numeric].sort(
+    (a, b) => metricScore(b) - metricScore(a),
+  );
+  // Ưu tiên nhóm cùng bậc (P/E·P/B·ROE) — tránh lẫn vốn hóa làm radar lệch hình
+  let metrics = selectCompatibleYCols(data, ranked).slice(0, 6);
+  if (metrics.length < 3) metrics = ranked.slice(0, 5);
   if (!entity || metrics.length < 3) return null;
 
   const deduped = dedupeRowsByEntity(data, entity);
@@ -849,13 +852,12 @@ export function refineChartType(
     return pickWaterfallAxes(data, userQuery) ? "waterfall" : "bar";
   }
 
-  const { yCols, isComparison } = pickChartAxes(data);
+  const { yCols } = pickChartAxes(data);
 
   if (requested === "combo" && yCols.length < 2) return "bar";
 
-  if (requested === "bar" && isComparison && yCols.length >= 3 && pickRadarAxes(data)) {
-    return "radar";
-  }
+  // Không ép bar → radar: lựa chọn của user (dropdown / «Thử») phải được tôn trọng.
+  // Template «So sánh định giá» đã set chart_type=radar sẵn.
 
   if (requested === "pie") {
     if (data.length > 12) return pickTreemapAxes(data) ? "treemap" : "bar";
@@ -1090,7 +1092,8 @@ export function explainChartChoice(
   ];
 
   for (const t of priority) {
-    if (t === effective || !allowed.includes(t)) continue;
+    // Loại trừ cả lựa chọn user và loại đang hiển thị (sau refine)
+    if (t === chartType || t === effective || !allowed.includes(t)) continue;
     alternatives.push({
       type: t,
       label: CHART_TYPE_LABELS[t],

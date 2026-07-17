@@ -1110,46 +1110,119 @@ function buildRadarOption(
   axes: RadarAxes,
   labels?: Record<string, string>,
 ): EChartsOption {
-  const rows = dedupeRowsByEntity(data, axes.entity);
-  const indicators = axes.metrics.map((m) => {
+  const rows = dedupeRowsByEntity(data, axes.entity).slice(0, 8);
+  const metricLabels = axes.metrics.map((m) => friendlyLabel(m, labels));
+
+  const indicators = axes.metrics.map((m, idx) => {
     const vals = rows
       .map((r) => Math.abs(Number(r[m])))
       .filter((n) => Number.isFinite(n));
-    const max = vals.length ? Math.max(...vals) * 1.15 : 1;
-    return { name: friendlyLabel(m, labels), max: max || 1 };
+    const max = vals.length ? Math.max(...vals) * 1.12 : 1;
+    return {
+      name: metricLabels[idx],
+      max: max || 1,
+    };
   });
 
-  const seriesData = rows.slice(0, 8).map((row, i) => ({
-    name: String(row[axes.entity] ?? i + 1),
-    value: axes.metrics.map((m) => {
-      const n = Number(row[m]);
-      return Number.isFinite(n) ? n : 0;
-    }),
-    itemStyle: { color: COLORS[i % COLORS.length] },
-    areaStyle: { opacity: 0.12 },
-  }));
+  const seriesData = rows.map((row, i) => {
+    const color = COLORS[i % COLORS.length];
+    return {
+      name: String(row[axes.entity] ?? i + 1),
+      value: axes.metrics.map((m) => {
+        const n = Number(row[m]);
+        return Number.isFinite(n) ? n : 0;
+      }),
+      symbol: "circle",
+      symbolSize: 7,
+      lineStyle: { width: 2.5, color },
+      itemStyle: {
+        color,
+        borderColor: "#fff",
+        borderWidth: 1.5,
+      },
+      areaStyle: {
+        color: hexAlpha(color, 0.14),
+      },
+      emphasis: {
+        lineStyle: { width: 3.5 },
+        areaStyle: { color: hexAlpha(color, 0.28) },
+      },
+    };
+  });
 
   return {
     animationDuration: 700,
+    animationEasing: "cubicOut",
     legend: {
-      bottom: 0,
-      textStyle: { color: "#5b6b73", fontSize: 11 },
+      ...reportLegend(labels, { many: rows.length > 5 }),
+      top: undefined,
+      bottom: 4,
+      left: "center",
     },
-    tooltip: { trigger: "item" },
+    tooltip: {
+      ...reportTooltipBase(),
+      trigger: "item",
+      formatter: (params) => {
+        const p = params as {
+          name?: string;
+          color?: string;
+          value?: number[];
+          marker?: string;
+        };
+        const vals = Array.isArray(p.value) ? p.value : [];
+        const rowsHtml = metricLabels
+          .map((label, i) => {
+            const raw = vals[i];
+            const col = axes.metrics[i];
+            return (
+              `<tr>` +
+              `<td style="padding:2px 12px 2px 0;white-space:nowrap;color:${CHART_MUTED}">${label}</td>` +
+              `<td style="padding:2px 0;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${formatNumber(raw, col)}</td>` +
+              `</tr>`
+            );
+          })
+          .join("");
+        return (
+          `<div style="margin-bottom:6px;font-weight:700">${p.marker || ""} ${p.name || ""}</div>` +
+          `<table style="border-collapse:collapse;font-size:12px">${rowsHtml}</table>`
+        );
+      },
+    },
     radar: {
       indicator: indicators,
-      center: ["50%", "48%"],
-      radius: "62%",
-      axisName: { color: "#5b6b73", fontSize: 11 },
+      center: ["50%", "46%"],
+      radius: "58%",
+      startAngle: 90,
+      splitNumber: 4,
+      axisName: {
+        color: CHART_MUTED,
+        fontSize: 12,
+        fontWeight: 600,
+        padding: [3, 6],
+      },
+      axisNameGap: 8,
+      axisLine: {
+        lineStyle: { color: "rgba(11,31,42,0.12)" },
+      },
+      splitLine: {
+        lineStyle: { color: "rgba(11,31,42,0.1)" },
+      },
       splitArea: {
+        show: true,
         areaStyle: {
-          color: ["rgba(15,118,110,0.03)", "rgba(15,118,110,0.07)"],
+          color: [
+            "rgba(15,118,110,0.02)",
+            "rgba(15,118,110,0.055)",
+            "rgba(15,118,110,0.02)",
+            "rgba(15,118,110,0.055)",
+          ],
         },
       },
     },
     series: [
       {
         type: "radar",
+        emphasis: { focus: "series" },
         data: seriesData,
       },
     ],
