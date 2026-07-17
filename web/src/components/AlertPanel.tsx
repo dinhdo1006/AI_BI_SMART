@@ -366,14 +366,30 @@ export function AlertPanel({ domainId }: { domainId: string }) {
                 Vừa kích hoạt
               </p>
               <ul className="max-h-28 space-y-1 overflow-y-auto scrollbar-thin">
-                {events.slice(0, 5).map((ev) => (
-                  <li
-                    key={ev.id}
-                    className="rounded-md bg-copper-soft/35 px-2 py-1 text-[10px] leading-snug text-copper"
-                  >
-                    {ev.message}
-                  </li>
-                ))}
+                {events.slice(0, 5).map((ev) => {
+                  const askQ = ev.target
+                    ? `Phân tích ${ev.target} liên quan ${ev.metric_key} (ngưỡng ${ev.operator} ${ev.threshold})`
+                    : `Giải thích alert ${ev.rule_name}: ${ev.message}`;
+                  return (
+                    <li
+                      key={ev.id}
+                      className="rounded-md bg-copper-soft/35 px-2 py-1 text-[10px] leading-snug text-copper"
+                    >
+                      <p>{ev.message}</p>
+                      <button
+                        type="button"
+                        className="mt-0.5 font-semibold underline hover:text-ink"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("abi:suggest", { detail: askQ }),
+                          )
+                        }
+                      >
+                        Hỏi lại trong chat →
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

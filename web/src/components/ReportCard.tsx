@@ -16,11 +16,13 @@ import {
   postFeedback,
   reviseArticle,
   saveDashboard,
+  setDashboardPublic,
   exportWord,
   exportPptx,
   exportPdf,
 } from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
+import { canClient } from "@/lib/rbac";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
 import { compatibleCharts } from "@/lib/viz";
 import { useChatStore } from "@/store/chat-store";
@@ -110,7 +112,10 @@ export function ReportCard({
   const [sendingVote, setSendingVote] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dashUrl, setDashUrl] = useState<string | null>(null);
-  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+  const [dashId, setDashId] = useState<string | null>(null);
+  const [embedPublic, setEmbedPublic] = useState(false);
+  const [togglingPublic, setTogglingPublic] = useState(false);
+  const [feedbackNote, setFeedbackNote] = useState<string | null>(null);
   const getPngRef = useRef<(() => string | null) | null>(null);
 
   const labels = useMemo(
@@ -204,6 +209,7 @@ export function ReportCard({
         data: payload.data,
         insightSummary: resolvedInsight,
         sqlSource: payload.sql_source ?? null,
+        artifactId: payload.artifact_id ?? null,
         onProgress: (step) => setWritingLabel(step),
       });
       // Ghép ảnh chart phía client — không gửi API
@@ -242,6 +248,7 @@ export function ReportCard({
       insightSummary: resolvedInsight,
       data: payload.data,
       sqlSource: current.sql_source ?? payload.sql_source ?? null,
+      artifactId: current.artifact_id ?? payload.artifact_id ?? null,
     });
     if (revised.error) return revised.error;
     updateMessage(messageId, {
@@ -328,16 +335,41 @@ export function ReportCard({
             article_markdown: msg?.article?.article_markdown,
             period_comparison: payload.period_comparison,
             forecast: payload.forecast,
+            artifact_id: payload.artifact_id,
           },
         ],
+        isPublic: false,
       });
       if (res.id) {
+        setDashId(res.id);
         setDashUrl(`/dashboard/${res.id}`);
-        // Tạo embed URL public — user tự bật sau nếu muốn
-        setEmbedUrl(`/embed/${res.id}`);
+        setEmbedPublic(false);
       }
     } finally {
       setSavingDash(false);
+    }
+  }
+
+  async function toggleEmbedPublic() {
+    if (!dashId || togglingPublic) return;
+    const next = !embedPublic;
+    const fact = msg?.article?.fact_check;
+    if (next && fact && fact.ok === false) {
+      const ok = window.confirm(
+        "Fact-check bài viết còn cảnh báo số liệu. Vẫn công khai embed?",
+      );
+      if (!ok) return;
+    }
+    setTogglingPublic(true);
+    try {
+      const res = await setDashboardPublic(dashId, next);
+      setEmbedPublic(!!res.is_public);
+    } catch (err) {
+      alert(
+        `Không bật/tắt embed: ${err instanceof Error ? err.message : "Lỗi"}`,
+      );
+    } finally {
+      setTogglingPublic(false);
     }
   }
 
@@ -351,9 +383,17 @@ export function ReportCard({
       sqlQuery: payload.sql_query,
       sqlSource: payload.sql_source,
       status: payload.status,
+      artifactId: payload.artifact_id,
     });
     setSendingVote(false);
-    if (ok) updateMessage(messageId, { feedback: vote });
+    if (ok) {
+      updateMessage(messageId, { feedback: vote });
+      setFeedbackNote(
+        vote === "up"
+          ? "Đã ghi nhận — giúp ưu tiên kiểu trả lời này lần sau."
+          : "Đã ghi nhận — đã gỡ cache câu hỏi này để lần sau tính lại.",
+      );
+    }
   }
 
   if (payload.status === "error" || payload.error) {
@@ -398,6 +438,14 @@ export function ReportCard({
                 )}
               >
                 {confidence.label}
+              </span>
+            )}
+            {payload.artifact_id && (
+              <span
+                className="rounded-md bg-mist px-2 py-0.5 font-mono text-[10px] text-ink-soft/60"
+                title="ID phân tích — nối bài viết, share, feedback"
+              >
+                #{payload.artifact_id.slice(0, 8)}
               </span>
             )}
             {payload.from_cache && (
@@ -540,6 +588,8 @@ export function ReportCard({
               <FileText className="h-4 w-4" />
               JSON
             </button>
+            {canClient("export") && (
+              <>
             <button
               type="button"
               disabled={exporting || (chartType !== "table" && !chartReady)}
@@ -576,6 +626,9 @@ export function ReportCard({
               <FileText className="h-4 w-4" />
               {exporting ? "PDF…" : "PDF"}
             </button>
+              </>
+            )}
+            {canClient("article.write") && (
             <button
               type="button"
               disabled={writing}
@@ -585,6 +638,8 @@ export function ReportCard({
               <Newspaper className="h-4 w-4" />
               {writing ? writingLabel : "Viết bài báo"}
             </button>
+            )}
+            {canClient("dashboard.write") && (
             <button
               type="button"
               disabled={savingDash}
@@ -594,6 +649,7 @@ export function ReportCard({
               <LayoutDashboard className="h-4 w-4" />
               {savingDash ? "Đang lưu…" : "Lưu dashboard"}
             </button>
+            )}
             {dashUrl && (
               <a
                 href={dashUrl}
@@ -604,50 +660,77 @@ export function ReportCard({
                 Mở dashboard
               </a>
             )}
-            {embedUrl && (
+            {dashId && (
+              <button
+                type="button"
+                disabled={togglingPublic}
+                onClick={() => void toggleEmbedPublic()}
+                className={cn(
+                  "rounded-lg border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50",
+                  embedPublic
+                    ? "border-teal/40 bg-teal/10 text-teal"
+                    : "border-line bg-foam text-ink-soft hover:text-teal",
+                )}
+                title="Bật để chia sẻ công khai không cần đăng nhập"
+              >
+                {togglingPublic
+                  ? "…"
+                  : embedPublic
+                    ? "Đang công khai"
+                    : "Công khai embed"}
+              </button>
+            )}
+            {dashId && embedPublic && (
               <a
-                href={embedUrl}
+                href={`/embed/${dashId}`}
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs font-semibold text-ink-soft underline hover:text-teal"
                 title="Link embed công khai (không cần login)"
               >
-                Embed
+                Mở embed
               </a>
             )}
 
-            <div className="ml-auto flex items-center gap-1.5">
-              <span className="mr-1 text-[11px] text-ink-soft/60">
-                {voted ? "Đã ghi nhận" : "Hữu ích?"}
-              </span>
-              <button
-                type="button"
-                disabled={!!voted || sendingVote}
-                onClick={() => void sendVote("up")}
-                aria-label="Hữu ích"
-                className={cn(
-                  "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:opacity-50",
-                  voted === "up"
-                    ? "border-teal/40 bg-teal/10 text-teal"
-                    : "border-line bg-foam text-ink-soft hover:border-teal/30 hover:text-ink",
-                )}
-              >
-                <ThumbsUp className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                disabled={!!voted || sendingVote}
-                onClick={() => void sendVote("down")}
-                aria-label="Không hữu ích"
-                className={cn(
-                  "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:opacity-50",
-                  voted === "down"
-                    ? "border-copper/40 bg-copper-soft text-copper"
-                    : "border-line bg-foam text-ink-soft hover:border-copper/30 hover:text-ink",
-                )}
-              >
-                <ThumbsDown className="h-4 w-4" />
-              </button>
+            <div className="ml-auto flex flex-col items-end gap-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="mr-1 text-[11px] text-ink-soft/60">
+                  {voted ? "Đã ghi nhận" : "Hữu ích?"}
+                </span>
+                <button
+                  type="button"
+                  disabled={!!voted || sendingVote}
+                  onClick={() => void sendVote("up")}
+                  aria-label="Hữu ích"
+                  className={cn(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:opacity-50",
+                    voted === "up"
+                      ? "border-teal/40 bg-teal/10 text-teal"
+                      : "border-line bg-foam text-ink-soft hover:border-teal/30 hover:text-ink",
+                  )}
+                >
+                  <ThumbsUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={!!voted || sendingVote}
+                  onClick={() => void sendVote("down")}
+                  aria-label="Không hữu ích"
+                  className={cn(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition disabled:opacity-50",
+                    voted === "down"
+                      ? "border-copper/40 bg-copper-soft text-copper"
+                      : "border-line bg-foam text-ink-soft hover:border-copper/30 hover:text-ink",
+                  )}
+                >
+                  <ThumbsDown className="h-4 w-4" />
+                </button>
+              </div>
+              {feedbackNote && (
+                <p className="max-w-[14rem] text-right text-[10px] text-ink-soft/70">
+                  {feedbackNote}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -656,7 +739,9 @@ export function ReportCard({
           <ArticlePanel
             article={msg.article}
             onClear={() => updateMessage(messageId, { article: null })}
-            onRevise={reviseCurrentArticle}
+            onRevise={
+              canClient("article.revise") ? reviseCurrentArticle : undefined
+            }
           />
         )}
       </div>

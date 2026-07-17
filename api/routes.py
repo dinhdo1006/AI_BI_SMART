@@ -243,6 +243,11 @@ class ChatResponse(BaseModel):
     # Tier 4: ghi chú shape + nguồn giá (trust)
     trust_meta: dict[str, Any] | None = None
     shape_notes: list[str] = Field(default_factory=list)
+    # ID phân tích xuyên suốt: chat → article → dashboard → feedback
+    artifact_id: str = Field(
+        default_factory=lambda: uuid.uuid4().hex[:16],
+        description="ID artifact để nối các bước trong vòng phân tích",
+    )
 
 
 class ArticleRequest(BaseModel):
@@ -271,6 +276,10 @@ class ArticleRequest(BaseModel):
         default=None,
         description="Nguồn dữ liệu gốc (fast_path/llm/repair/cache/upload…)",
     )
+    artifact_id: str | None = Field(
+        default=None,
+        description="ID artifact từ ChatResponse gốc",
+    )
 
 
 class ArticleReviseRequest(BaseModel):
@@ -296,6 +305,10 @@ class ArticleReviseRequest(BaseModel):
         default=None,
         description="Nguồn dữ liệu gốc truyền lại để giữ confidence",
     )
+    artifact_id: str | None = Field(
+        default=None,
+        description="ID artifact từ phân tích gốc",
+    )
 
 
 class ArticleResponse(BaseModel):
@@ -315,6 +328,7 @@ class ArticleResponse(BaseModel):
     # Nguồn dữ liệu & confidence (giống ChatResponse)
     sql_source: str | None = None
     confidence_label: str | None = None
+    artifact_id: str | None = None
 
 
 class WordExportRequest(BaseModel):
@@ -342,15 +356,28 @@ class FeedbackRequest(BaseModel):
     sql_query: str = ""
     sql_source: str | None = None
     status: str | None = None
+    artifact_id: str | None = None
+    tenant_id: str | None = None
 
 
 class FeedbackResponse(BaseModel):
     ok: bool = True
+    cache_invalidated: int = 0
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
-def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
-    """Lưu thumbs up/down — append JSONL để cải thiện few-shot sau này."""
+def submit_feedback(
+    request: FeedbackRequest,
+    http_request: Request,
+) -> FeedbackResponse:
+    """Lưu thumbs up/down — downvote thì xóa cache câu hỏi tương ứng."""
+    from core.query_cache import invalidate_query_cache
+
+    identity = get_request_identity(http_request)
+    tid = request.tenant_id or identity.get("tenant_id")
+    if tid in ("platform", ""):
+        tid = None
+
     log_feedback(
         domain_id=request.domain_id,
         query=request.query,
@@ -358,8 +385,16 @@ def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
         sql_query=request.sql_query or "",
         sql_source=request.sql_source,
         status=request.status,
+        artifact_id=request.artifact_id,
     )
-    return FeedbackResponse(ok=True)
+    invalidated = 0
+    if request.vote == "down":
+        invalidated = invalidate_query_cache(
+            request.domain_id,
+            request.query,
+            tenant_id=str(tid) if tid else None,
+        )
+    return FeedbackResponse(ok=True, cache_invalidated=invalidated)
 
 
 @router.post("/analyze_upload", response_model=ChatResponse)
@@ -508,13 +543,13 @@ def get_domains_health() -> dict[str, Any]:
 
 @router.get("/monitoring/metrics")
 def get_monitoring_metrics(
+    http_request: Request,
     hours: int = 24,
     domain_id: str | None = None,
-    http_request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """Metrics tổng hợp từ audit log: success rate, latency, cache hit, sql_source breakdown."""
     require_permission(http_request, "admin.monitoring")
-    identity = get_request_identity(http_request) if http_request else {}
+    identity = get_request_identity(http_request)
     tid = identity.get("tenant_id")
     if tid in ("platform", ""):
         tid = None
@@ -737,6 +772,7 @@ def _build_article_response(
         fact_check=result.get("fact_check"),
         sql_source=request.sql_source,
         confidence_label=_article_confidence_label(request.sql_source),
+        artifact_id=request.artifact_id,
     )
 
 
@@ -788,6 +824,7 @@ def revise_article_endpoint(
         fact_check=result.get("fact_check"),
         sql_source=request.sql_source,
         confidence_label=_article_confidence_label(request.sql_source),
+        artifact_id=request.artifact_id,
     )
 
 

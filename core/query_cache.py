@@ -410,6 +410,36 @@ def set_cached_response(
             conn.close()
 
 
+def invalidate_query_cache(
+    domain_id: str,
+    query: str,
+    tenant_id: str | None = None,
+) -> int:
+    """Xóa cache exact + semantic cho 1 câu hỏi (dùng khi feedback 👎)."""
+    if not is_query_cache_enabled():
+        return 0
+    key = make_cache_key(domain_id, query, tenant_id)
+    sem_key = make_semantic_key(domain_id, query, tenant_id)
+    with _LOCK:
+        conn = _connect()
+        try:
+            _init_db(conn)
+            cur = conn.execute(
+                "DELETE FROM query_cache WHERE cache_key = ?",
+                (key,),
+            )
+            deleted = cur.rowcount
+            cur2 = conn.execute(
+                "DELETE FROM query_cache WHERE domain_id = ? AND semantic_key = ?",
+                (domain_id, sem_key),
+            )
+            deleted += cur2.rowcount
+            conn.commit()
+            return deleted
+        finally:
+            conn.close()
+
+
 def clear_query_cache(domain_id: str | None = None) -> int:
     """Xóa cache (toàn bộ hoặc theo domain). Trả số dòng đã xóa."""
     with _LOCK:

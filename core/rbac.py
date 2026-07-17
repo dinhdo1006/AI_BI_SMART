@@ -12,7 +12,6 @@ ROLES: tuple[Role, ...] = ("admin", "analyst", "viewer")
 PERMISSIONS: dict[str, frozenset[Role]] = {
     "chat": frozenset({"admin", "analyst", "viewer"}),
     "explore": frozenset({"admin", "analyst", "viewer"}),
-    "export": frozenset({"admin", "analyst", "viewer"}),
     "dashboard.read": frozenset({"admin", "analyst", "viewer"}),
     "dashboard.write": frozenset({"admin", "analyst"}),
     "article.write": frozenset({"admin", "analyst"}),
@@ -20,13 +19,13 @@ PERMISSIONS: dict[str, frozenset[Role]] = {
     "upload": frozenset({"admin", "analyst"}),
     "alerts.manage": frozenset({"admin", "analyst"}),
     "feedback": frozenset({"admin", "analyst", "viewer"}),
+    "export": frozenset({"admin", "analyst"}),
     "admin.tenants": frozenset({"admin"}),
     "admin.users": frozenset({"admin"}),
     "admin.keys": frozenset({"admin"}),
     "admin.branding": frozenset({"admin"}),
     "admin.jobs": frozenset({"admin"}),
     "admin.monitoring": frozenset({"admin"}),
-    "export": frozenset({"admin", "analyst"}),
 }
 
 

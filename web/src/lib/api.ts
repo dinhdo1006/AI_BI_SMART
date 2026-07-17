@@ -316,6 +316,7 @@ export async function postArticle(params: {
   data: Record<string, unknown>[];
   insightSummary?: string;
   sqlSource?: string | null;
+  artifactId?: string | null;
   onProgress?: (step: string) => void;
 }): Promise<ArticleResponse> {
   // Ưu tiên SSE để hiện progress; fallback POST cũ nếu stream lỗi
@@ -335,6 +336,7 @@ export async function postArticle(params: {
       data: params.data,
       insight_summary: params.insightSummary || "",
       sql_source: params.sqlSource ?? null,
+      artifact_id: params.artifactId ?? null,
     }),
   });
   if (!res.ok) {
@@ -365,6 +367,7 @@ export async function reviseArticle(params: {
   insightSummary?: string;
   data?: Record<string, unknown>[];
   sqlSource?: string | null;
+  artifactId?: string | null;
 }): Promise<ArticleResponse> {
   const res = await apiFetch("/api/v1/revise_article", {
     method: "POST",
@@ -377,6 +380,7 @@ export async function reviseArticle(params: {
       insight_summary: params.insightSummary || "",
       data: params.data || [],
       sql_source: params.sqlSource ?? null,
+      artifact_id: params.artifactId ?? null,
     }),
   });
   if (!res.ok) {
@@ -404,6 +408,7 @@ async function postArticleStream(params: {
   data: Record<string, unknown>[];
   insightSummary?: string;
   sqlSource?: string | null;
+  artifactId?: string | null;
   onProgress?: (step: string) => void;
 }): Promise<ArticleResponse | null> {
   const res = await apiFetch("/api/v1/generate_article/stream", {
@@ -418,6 +423,7 @@ async function postArticleStream(params: {
       data: params.data,
       insight_summary: params.insightSummary || "",
       sql_source: params.sqlSource ?? null,
+      artifact_id: params.artifactId ?? null,
     }),
   });
 
@@ -562,7 +568,8 @@ export async function saveDashboard(params: {
   title: string;
   domainId: string;
   reports: DashboardPayload["reports"];
-}): Promise<{ id: string }> {
+  isPublic?: boolean;
+}): Promise<{ id: string; is_public?: boolean }> {
   const res = await apiFetch("/api/v1/dashboards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -570,10 +577,24 @@ export async function saveDashboard(params: {
       title: params.title,
       domain_id: params.domainId,
       reports: params.reports,
+      is_public: params.isPublic ?? false,
     }),
   });
   if (!res.ok) throw new Error(await parseError(res));
-  return (await res.json()) as { id: string };
+  return (await res.json()) as { id: string; is_public?: boolean };
+}
+
+export async function setDashboardPublic(
+  id: string,
+  isPublic: boolean,
+): Promise<{ id: string; is_public: boolean }> {
+  const res = await apiFetch(`/api/v1/dashboards/${id}/public`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_public: isPublic }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as { id: string; is_public: boolean };
 }
 
 export async function fetchDashboard(
@@ -590,6 +611,67 @@ export async function fetchDashboard(
   }
 }
 
+export async function fetchMonitoringMetrics(
+  hours = 24,
+  domainId?: string,
+): Promise<{
+  total_requests: number;
+  hours: number;
+  success_rate: number;
+  error_rate: number;
+  cache_hit_rate: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+  sql_source_breakdown: Record<string, number>;
+  intent_breakdown: Record<string, number>;
+  requests_by_hour: Record<string, number>;
+  top_queries: Array<{ query: string; count: number }>;
+} | null> {
+  try {
+    const q = new URLSearchParams({ hours: String(hours) });
+    if (domainId) q.set("domain_id", domainId);
+    const res = await apiFetch(`/api/v1/monitoring/metrics?${q}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchDataQuality(
+  domainId = "finance_vnfdata",
+): Promise<{
+  last_checked: string | null;
+  summary: Record<string, number>;
+  top_divergent_tickers: Array<{
+    ticker: string;
+    company_name: string;
+    days_divergent: number;
+    avg_diff_pct: number | null;
+    max_diff_pct: number | null;
+    latest_date: string;
+  }>;
+  divergent_by_date: Array<{
+    trade_date: string;
+    divergent_count: number;
+    max_diff_pct: number | null;
+  }>;
+} | null> {
+  try {
+    const res = await apiFetch(
+      `/api/v1/data-quality?domain_id=${encodeURIComponent(domainId)}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function postFeedback(params: {
   domainId: string;
   query: string;
@@ -597,6 +679,7 @@ export async function postFeedback(params: {
   sqlQuery?: string;
   sqlSource?: string | null;
   status?: string | null;
+  artifactId?: string | null;
 }): Promise<boolean> {
   try {
     const res = await apiFetch("/api/v1/feedback", {
@@ -609,6 +692,7 @@ export async function postFeedback(params: {
         sql_query: params.sqlQuery || "",
         sql_source: params.sqlSource ?? null,
         status: params.status ?? null,
+        artifact_id: params.artifactId ?? null,
       }),
     });
     return res.ok;

@@ -25,6 +25,7 @@ import type { DomainExplore, DomainsHealth } from "@/lib/types";
 import { useChatStore, type ChatSession } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { AlertPanel } from "@/components/AlertPanel";
+import { canClient } from "@/lib/rbac";
 import { AutoArticlePanel } from "@/components/AutoArticlePanel";
 
 export function Sidebar() {
@@ -164,6 +165,21 @@ export function Sidebar() {
               Monitoring
             </a>
           )}
+          <a
+            href="/api/v1/sso/login"
+            className="rounded-lg border border-line bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-teal"
+            title="Cần SSO_PROVIDER=oidc|saml trong .env"
+          >
+            SSO
+          </a>
+          <a
+            href="/data-quality"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-line bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-teal"
+          >
+            Data quality
+          </a>
         </div>
         {loginOpen && (
           <div className="mt-2 space-y-2 rounded-xl border border-line bg-white/95 p-3">
@@ -266,7 +282,7 @@ export function Sidebar() {
           </div>
         )}
 
-        <AlertPanel domainId={domainId} />
+        {canClient("alerts.manage") && <AlertPanel domainId={domainId} />}
         <AutoArticlePanel domainId={domainId} />
 
         <div>

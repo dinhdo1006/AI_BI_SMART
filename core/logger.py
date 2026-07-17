@@ -100,6 +100,7 @@ def log_feedback(
     sql_query: str = "",
     sql_source: str | None = None,
     status: str | None = None,
+    artifact_id: str | None = None,
 ) -> None:
     """Ghi feedback user (👍/👎) ra stdout + logs/feedback.jsonl."""
     payload: dict[str, Any] = {
@@ -109,6 +110,8 @@ def log_feedback(
         "query": query[:500],
         "vote": vote,
     }
+    if artifact_id:
+        payload["artifact_id"] = artifact_id
     if sql_source:
         payload["sql_source"] = sql_source
     if status:

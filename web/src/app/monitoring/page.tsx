@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchMonitoringMetrics } from "@/lib/api";
 
 type Metrics = {
   total_requests: number;
@@ -17,16 +18,8 @@ type Metrics = {
   top_queries: Array<{ query: string; count: number }>;
 };
 
-async function fetchMetrics(hours: number): Promise<Metrics | null> {
-  try {
-    const res = await fetch(`/api/v1/monitoring/metrics?hours=${hours}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as Metrics;
-  } catch {
-    return null;
-  }
+async function loadMetrics(hours: number): Promise<Metrics | null> {
+  return fetchMonitoringMetrics(hours);
 }
 
 function KpiCard({
@@ -95,9 +88,7 @@ export default function MonitoringPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetchMetrics(hours).then((m) => {
+    loadMetrics(hours).then((m) => {
       if (!m) setError("Không tải được metrics. Đảm bảo đăng nhập admin.");
       else setMetrics(m);
       setLoading(false);
@@ -131,7 +122,7 @@ export default function MonitoringPage() {
           <button
             onClick={() => {
               setLoading(true);
-              fetchMetrics(hours).then((m) => {
+              loadMetrics(hours).then((m) => {
                 if (m) setMetrics(m);
                 setLoading(false);
               });

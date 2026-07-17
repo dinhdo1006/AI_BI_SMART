@@ -6,6 +6,7 @@ import { ArrowUp, Loader2, Paperclip, X } from "lucide-react";
 import { postChatStream, postUploadAnalyze } from "@/lib/api";
 import type { HistoryMessage } from "@/lib/types";
 import { isVizOnlyRequest } from "@/lib/viz";
+import { canClient } from "@/lib/rbac";
 import { useChatStore } from "@/store/chat-store";
 import { EmptyHero } from "./EmptyHero";
 import { ReportCard } from "./ReportCard";
@@ -278,6 +279,8 @@ export function ChatPanel() {
           </div>
         )}
         <div className="flex items-end gap-2 rounded-2xl border border-line bg-white p-2 shadow-sm focus-within:border-teal/40 focus-within:ring-2 focus-within:ring-teal/15">
+          {canClient("upload") && (
+            <>
           <input
             ref={fileRef}
             type="file"
@@ -295,6 +298,8 @@ export function ChatPanel() {
           >
             <Paperclip className="h-5 w-5" />
           </button>
+            </>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

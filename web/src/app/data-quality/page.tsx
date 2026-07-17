@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchDataQuality } from "@/lib/api";
 
 interface DivergentTicker {
   ticker: string;
@@ -22,17 +23,6 @@ interface DataQuality {
   summary: Record<string, number>;
   top_divergent_tickers: DivergentTicker[];
   divergent_by_date: DivergentByDate[];
-}
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-async function fetchDataQuality(domainId = "finance_vnfdata"): Promise<DataQuality> {
-  const res = await fetch(
-    `${API_BASE}/api/v1/data-quality?domain_id=${domainId}`,
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 }
 
 function severityColor(pct: number | null): string {
@@ -58,7 +48,10 @@ export default function DataQualityPage() {
 
   useEffect(() => {
     fetchDataQuality()
-      .then(setData)
+      .then((d) => {
+        if (!d) setError("Không tải được data quality");
+        else setData(d as DataQuality);
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, []);

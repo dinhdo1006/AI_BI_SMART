@@ -131,6 +131,12 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
         )
         result["event_id"] = event["id"]
         result["new_event"] = True
+        try:
+            from core.alert_notify import notify_alert
+
+            result["notify"] = notify_alert(result)
+        except Exception as exc:  # noqa: BLE001
+            result["notify"] = [{"status": "error", "message": str(exc)[:120]}]
     elif triggered and was_triggered:
         result["message"] = msg + " (đã cảnh báo trước — không tạo event mới)"
 

@@ -98,6 +98,8 @@ export type ChatResponse = {
   } | null;
   shape_notes?: string[];
   error?: string;
+  /** ID artifact nối chat → bài viết → dashboard → feedback */
+  artifact_id?: string;
 };
 
 export type ArticleFactCheck = {
@@ -133,6 +135,7 @@ export type ArticleResponse = {
   sql_source?: string | null;
   /** Nhãn hiển thị cho confidence (ví dụ: "LLM", "Fast-path") */
   confidence_label?: string | null;
+  artifact_id?: string | null;
 };
 
 export type DashboardReport = {
@@ -145,6 +148,7 @@ export type DashboardReport = {
   article_markdown?: string;
   period_comparison?: PeriodComparison | null;
   forecast?: Forecast | null;
+  artifact_id?: string;
 };
 
 export type DashboardPayload = {

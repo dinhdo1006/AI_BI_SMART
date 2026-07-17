@@ -108,7 +108,7 @@ def _issue_api_key(email: str, tenant_id: str) -> str:
         name=f"sso:{email}",
         role="analyst",
     )
-    return str(result.get("raw_key") or result.get("key_prefix") or "")
+    return str(result.get("api_key") or "")
 
 
 # ---------------------------------------------------------------------------
