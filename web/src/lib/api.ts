@@ -30,6 +30,25 @@ function apiUrl(path: string): string {
   return `${API_BASE}${p}`;
 }
 
+/** Gắn X-API-Key từ localStorage (sau login tenant) nếu có. */
+export async function apiFetch(
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const headers = new Headers(init?.headers || {});
+  if (typeof window !== "undefined") {
+    const key = window.localStorage.getItem("abi_api_key");
+    if (
+      key &&
+      !headers.has("X-API-Key") &&
+      !headers.has("Authorization")
+    ) {
+      headers.set("X-API-Key", key);
+    }
+  }
+  return fetch(apiUrl(path), { ...init, headers });
+}
+
 async function parseError(res: Response): Promise<string> {
   try {
     const data = await res.json();
@@ -47,7 +66,7 @@ async function parseError(res: Response): Promise<string> {
 
 export async function fetchDomains(): Promise<DomainItem[]> {
   try {
-    const res = await fetch(apiUrl("/api/v1/domains"), { cache: "no-store" });
+    const res = await apiFetch("/api/v1/domains", { cache: "no-store" });
     if (!res.ok) throw new Error(await parseError(res));
     const data = await res.json();
     return (data.domains || []) as DomainItem[];
@@ -58,7 +77,7 @@ export async function fetchDomains(): Promise<DomainItem[]> {
 
 export async function fetchDomainsHealth(): Promise<DomainsHealth | null> {
   try {
-    const res = await fetch(apiUrl("/api/v1/health/domains"), {
+    const res = await apiFetch("/api/v1/health/domains", {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -93,7 +112,7 @@ export async function postUploadAnalyze(params: {
   body.append("question", params.question || "");
   body.append("file", params.file);
 
-  const res = await fetch(apiUrl("/api/v1/analyze_upload"), {
+  const res = await apiFetch("/api/v1/analyze_upload", {
     method: "POST",
     body,
   });
@@ -115,6 +134,67 @@ export async function postUploadAnalyze(params: {
   return (await res.json()) as ChatResponse;
 }
 
+export async function fetchTenantBranding(): Promise<{
+  tenant_id?: string | null;
+  tenant_name?: string;
+  branding: {
+    product_name?: string;
+    primary_color?: string;
+    logo_url?: string;
+  };
+} | null> {
+  try {
+    const res = await apiFetch("/api/v1/tenant/branding", {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as {
+      tenant_id?: string | null;
+      tenant_name?: string;
+      branding: {
+        product_name?: string;
+        primary_color?: string;
+        logo_url?: string;
+      };
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function postLogin(params: {
+  email: string;
+  password: string;
+}): Promise<{
+  ok: boolean;
+  api_key?: string;
+  role?: string;
+  error?: string;
+  tenant?: { id?: string; name?: string; branding?: Record<string, string> };
+}> {
+  try {
+    const res = await apiFetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      return { ok: false, error: await parseError(res) };
+    }
+    return (await res.json()) as {
+      ok: boolean;
+      api_key?: string;
+      role?: string;
+      tenant?: { id?: string; name?: string; branding?: Record<string, string> };
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Login failed",
+    };
+  }
+}
+
 export async function postChat(params: {
   domainId: string;
   query: string;
@@ -122,7 +202,7 @@ export async function postChat(params: {
   reuseData?: Record<string, unknown>[] | null;
   previousInsight?: string;
 }): Promise<ChatResponse> {
-  const res = await fetch(apiUrl("/api/v1/chat"), {
+  const res = await apiFetch("/api/v1/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -161,7 +241,7 @@ export async function postChatStream(params: {
   onProgress?: (step: string) => void;
 }): Promise<ChatResponse> {
   try {
-    const res = await fetch(apiUrl("/api/v1/chat/stream"), {
+    const res = await apiFetch("/api/v1/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify({
@@ -245,7 +325,7 @@ export async function postArticle(params: {
     /* fallback below */
   }
 
-  const res = await fetch(apiUrl("/api/v1/generate_article"), {
+  const res = await apiFetch("/api/v1/generate_article", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -283,7 +363,7 @@ export async function reviseArticle(params: {
   insightSummary?: string;
   data?: Record<string, unknown>[];
 }): Promise<ArticleResponse> {
-  const res = await fetch(apiUrl("/api/v1/revise_article"), {
+  const res = await apiFetch("/api/v1/revise_article", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -321,7 +401,7 @@ async function postArticleStream(params: {
   insightSummary?: string;
   onProgress?: (step: string) => void;
 }): Promise<ArticleResponse | null> {
-  const res = await fetch(apiUrl("/api/v1/generate_article/stream"), {
+  const res = await apiFetch("/api/v1/generate_article/stream", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -392,7 +472,7 @@ export async function exportWord(params: {
   articleMarkdown?: string;
   chartImageBase64?: string;
 }): Promise<void> {
-  const res = await fetch(apiUrl("/api/v1/export/word"), {
+  const res = await apiFetch("/api/v1/export/word", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -419,7 +499,7 @@ export async function saveDashboard(params: {
   domainId: string;
   reports: DashboardPayload["reports"];
 }): Promise<{ id: string }> {
-  const res = await fetch(apiUrl("/api/v1/dashboards"), {
+  const res = await apiFetch("/api/v1/dashboards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -436,7 +516,7 @@ export async function fetchDashboard(
   id: string,
 ): Promise<DashboardPayload | null> {
   try {
-    const res = await fetch(apiUrl(`/api/v1/dashboards/${id}`), {
+    const res = await apiFetch(`/api/v1/dashboards/${id}`, {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -455,7 +535,7 @@ export async function postFeedback(params: {
   status?: string | null;
 }): Promise<boolean> {
   try {
-    const res = await fetch(apiUrl("/api/v1/feedback"), {
+    const res = await apiFetch("/api/v1/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -505,7 +585,7 @@ export async function createAlertRule(params: {
   threshold: number;
   target?: string;
 }): Promise<AlertRule> {
-  const res = await fetch(apiUrl("/api/v1/alerts/rules"), {
+  const res = await apiFetch("/api/v1/alerts/rules", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -525,7 +605,7 @@ export async function patchAlertRule(
   ruleId: string,
   body: { enabled?: boolean; name?: string; threshold?: number },
 ): Promise<AlertRule> {
-  const res = await fetch(apiUrl(`/api/v1/alerts/rules/${ruleId}`), {
+  const res = await apiFetch(`/api/v1/alerts/rules/${ruleId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -535,7 +615,7 @@ export async function patchAlertRule(
 }
 
 export async function deleteAlertRule(ruleId: string): Promise<boolean> {
-  const res = await fetch(apiUrl(`/api/v1/alerts/rules/${ruleId}`), {
+  const res = await apiFetch(`/api/v1/alerts/rules/${ruleId}`, {
     method: "DELETE",
   });
   return res.ok;
@@ -547,7 +627,7 @@ export async function runAlerts(
   const q = domainId
     ? `?domain_id=${encodeURIComponent(domainId)}`
     : "";
-  const res = await fetch(apiUrl(`/api/v1/alerts/run${q}`), {
+  const res = await apiFetch(`/api/v1/alerts/run${q}`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -556,7 +636,7 @@ export async function runAlerts(
 
 export async function fetchAlertScheduler(): Promise<AlertSchedulerStatus | null> {
   try {
-    const res = await fetch(apiUrl("/api/v1/alerts/scheduler"), {
+    const res = await apiFetch("/api/v1/alerts/scheduler", {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -589,7 +669,7 @@ export async function fetchAutoArticles(
   if (domainId) q.set("domain_id", domainId);
   q.set("limit", String(limit));
   try {
-    const res = await fetch(apiUrl(`/api/v1/auto_articles?${q}`), {
+    const res = await apiFetch(`/api/v1/auto_articles?${q}`, {
       cache: "no-store",
     });
     if (!res.ok) return [];
@@ -617,7 +697,7 @@ export async function fetchAutoArticle(
 
 export async function fetchAutoArticleScheduler(): Promise<AutoArticleSchedulerStatus | null> {
   try {
-    const res = await fetch(apiUrl("/api/v1/auto_articles/scheduler"), {
+    const res = await apiFetch("/api/v1/auto_articles/scheduler", {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -634,7 +714,7 @@ export async function runAutoArticleChecks(): Promise<{
   error_count: number;
   jobs?: Array<Record<string, unknown>>;
 }> {
-  const res = await fetch(apiUrl("/api/v1/auto_articles/run_checks"), {
+  const res = await apiFetch("/api/v1/auto_articles/run_checks", {
     method: "POST",
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -659,7 +739,7 @@ export async function runAutoArticleJob(params: {
     results?: Array<{ channel: string; status: string; message?: string }>;
   };
 }> {
-  const res = await fetch(apiUrl("/api/v1/auto_articles/run"), {
+  const res = await apiFetch("/api/v1/auto_articles/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

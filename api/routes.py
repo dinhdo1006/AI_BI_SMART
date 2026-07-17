@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from core.auth import auth_enabled, get_request_identity, require_permission
 from core.config_loader import list_available_domains, load_domain_config
 from core.cross_domain import detect_cross_domain_request
 from core.dashboard_store import create_dashboard, get_dashboard
@@ -348,11 +349,13 @@ def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
 
 @router.post("/analyze_upload", response_model=ChatResponse)
 async def analyze_upload_endpoint(
+    http_request: Request,
     domain_id: str = Form(...),
     question: str = Form(""),
     file: UploadFile = File(...),
 ) -> ChatResponse:
     """Phân tích CSV/Excel upload — không chạy SQL DB."""
+    require_permission(http_request, "upload")
     filename = file.filename or "upload.csv"
     lower = filename.lower()
     if not lower.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xls")):
@@ -555,11 +558,15 @@ def get_data_quality(domain_id: str = "finance_vnfdata") -> dict[str, Any]:
 
 
 @router.post("/generate_article", response_model=ArticleResponse)
-def generate_article_endpoint(request: ArticleRequest) -> ArticleResponse:
+def generate_article_endpoint(
+    request: ArticleRequest,
+    http_request: Request,
+) -> ArticleResponse:
     """
     Narrative Planner: outline → write sections → finalize bài báo.
     Chỉ gọi khi user bấm "Viết Bài Báo" — không chạy trong luồng chat thường.
     """
+    require_permission(http_request, "article.write")
     try:
         domain_config = load_domain_config(request.domain_id)
     except FileNotFoundError as exc:
@@ -658,8 +665,12 @@ def _build_article_response(
 
 
 @router.post("/revise_article", response_model=ArticleResponse)
-def revise_article_endpoint(request: ArticleReviseRequest) -> ArticleResponse:
+def revise_article_endpoint(
+    request: ArticleReviseRequest,
+    http_request: Request,
+) -> ArticleResponse:
     """AI biên tập lại bài đã viết theo chỉ đạo của user."""
+    require_permission(http_request, "article.revise")
     try:
         domain_config = load_domain_config(request.domain_id)
     except FileNotFoundError:
@@ -832,21 +843,35 @@ def export_word_endpoint(request: WordExportRequest) -> Response:
 
 
 @router.post("/dashboards")
-def create_dashboard_endpoint(request: DashboardCreateRequest) -> dict[str, Any]:
+def create_dashboard_endpoint(
+    request: DashboardCreateRequest,
+    http_request: Request,
+) -> dict[str, Any]:
     """Lưu dashboard (1+ báo cáo) — trả id để share."""
+    require_permission(http_request, "dashboard.write")
     if not request.reports:
         raise HTTPException(status_code=400, detail="reports không được rỗng")
+    identity = get_request_identity(http_request)
+    tid = identity.get("tenant_id")
+    if tid == "platform":
+        tid = None
     payload = create_dashboard(
         title=request.title or "Dashboard",
         domain_id=request.domain_id,
         reports=request.reports,
+        tenant_id=str(tid) if tid else None,
     )
     return {"id": payload["id"], "title": payload["title"]}
 
 
 @router.get("/dashboards/{dash_id}")
-def get_dashboard_endpoint(dash_id: str) -> dict[str, Any]:
-    data = get_dashboard(dash_id)
+def get_dashboard_endpoint(dash_id: str, http_request: Request) -> dict[str, Any]:
+    require_permission(http_request, "dashboard.read")
+    identity = get_request_identity(http_request)
+    tid = identity.get("tenant_id")
+    if tid == "platform":
+        tid = None
+    data = get_dashboard(dash_id, tenant_id=str(tid) if tid else None)
     if not data:
         raise HTTPException(status_code=404, detail="Dashboard không tồn tại")
     return data

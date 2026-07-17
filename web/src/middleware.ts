@@ -2,22 +2,33 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Inject API key vào request tới /api/* trước khi rewrite sang FastAPI.
- * Key chỉ ở server env (BACKEND_API_KEY hoặc API_KEY) — không lộ ra browser.
+ * Auth proxy:
+ * - Nếu browser đã gửi X-API-Key / Authorization (sau login tenant) → giữ nguyên.
+ * - Không thì inject BACKEND_API_KEY / API_KEY từ server env.
  */
 export function middleware(request: NextRequest) {
-  const apiKey = (
+  if (!request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
+  const incomingKey = (
+    request.headers.get("x-api-key") ||
+    (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "") ||
+    ""
+  ).trim();
+
+  const serverKey = (
     process.env.BACKEND_API_KEY ||
     process.env.API_KEY ||
     ""
   ).trim();
 
-  if (!apiKey || !request.nextUrl.pathname.startsWith("/api/")) {
+  if (incomingKey || !serverKey) {
     return NextResponse.next();
   }
 
   const headers = new Headers(request.headers);
-  headers.set("X-API-Key", apiKey);
+  headers.set("X-API-Key", serverKey);
   return NextResponse.next({ request: { headers } });
 }
 

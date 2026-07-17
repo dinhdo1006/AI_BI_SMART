@@ -17,6 +17,8 @@ import {
   API_BASE,
   fetchDomainExplore,
   fetchDomainsHealth,
+  fetchTenantBranding,
+  postLogin,
 } from "@/lib/api";
 import { promptsForDomain } from "@/lib/domain-prompts";
 import type { DomainExplore, DomainsHealth } from "@/lib/types";
@@ -41,11 +43,31 @@ export function Sidebar() {
   const [exploreOpen, setExploreOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [brandName, setBrandName] = useState("AI BI Smart");
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [email, setEmail] = useState("admin@local");
+  const [password, setPassword] = useState("admin123");
+  const [loginMsg, setLoginMsg] = useState<string | null>(null);
+  const [roleLabel, setRoleLabel] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDomainsHealth().then(setHealth);
     const t = setInterval(() => fetchDomainsHealth().then(setHealth), 60_000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    fetchTenantBranding().then((b) => {
+      const name = b?.branding?.product_name || b?.tenant_name || "AI BI Smart";
+      setBrandName(name);
+      const color = b?.branding?.primary_color;
+      if (color && typeof document !== "undefined") {
+        document.documentElement.style.setProperty("--color-teal", color);
+      }
+    });
+    if (typeof window !== "undefined") {
+      setRoleLabel(window.localStorage.getItem("abi_role"));
+    }
   }, []);
 
   useEffect(() => {
@@ -68,6 +90,34 @@ export function Sidebar() {
     setEditingId(null);
   }
 
+  async function onLogin() {
+    setLoginMsg(null);
+    const res = await postLogin({ email, password });
+    if (!res.ok || !res.api_key) {
+      setLoginMsg(res.error || "Đăng nhập thất bại");
+      return;
+    }
+    window.localStorage.setItem("abi_api_key", res.api_key);
+    if (res.role) {
+      window.localStorage.setItem("abi_role", res.role);
+      setRoleLabel(res.role);
+    }
+    const name =
+      res.tenant?.branding?.product_name ||
+      res.tenant?.name ||
+      brandName;
+    setBrandName(name);
+    setLoginOpen(false);
+    setLoginMsg("Đã đăng nhập");
+  }
+
+  function onLogout() {
+    window.localStorage.removeItem("abi_api_key");
+    window.localStorage.removeItem("abi_role");
+    setRoleLabel(null);
+    setLoginMsg(null);
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-[22px] border border-line bg-foam/80 shadow-[var(--shadow)] backdrop-blur-md">
       <div className="relative overflow-hidden border-b border-line px-5 pb-4 pt-6">
@@ -82,11 +132,56 @@ export function Sidebar() {
           Workspace
         </p>
         <h1 className="mt-2 font-[family-name:var(--font-display)] text-[1.85rem] font-extrabold leading-[1.05] tracking-tight text-ink">
-          AI BI Smart
+          {brandName}
         </h1>
         <p className="mt-2 max-w-[16rem] text-sm leading-relaxed text-ink-soft/85">
           Hỏi bằng tiếng Việt — nhận SQL, dashboard và bài phân tích.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setLoginOpen((v) => !v)}
+            className="rounded-lg border border-line bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-teal"
+          >
+            {roleLabel ? `Role: ${roleLabel}` : "Đăng nhập tenant"}
+          </button>
+          {roleLabel && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-lg border border-line bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-copper"
+            >
+              Thoát
+            </button>
+          )}
+        </div>
+        {loginOpen && (
+          <div className="mt-2 space-y-2 rounded-xl border border-line bg-white/95 p-3">
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              className="w-full rounded-lg border border-line px-2 py-1.5 text-xs outline-none focus:border-teal/40"
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Mật khẩu"
+              className="w-full rounded-lg border border-line px-2 py-1.5 text-xs outline-none focus:border-teal/40"
+            />
+            <button
+              type="button"
+              onClick={() => void onLogin()}
+              className="w-full rounded-lg bg-teal px-2 py-1.5 text-xs font-semibold text-white"
+            >
+              Đăng nhập
+            </button>
+            {loginMsg && (
+              <p className="text-[11px] text-ink-soft">{loginMsg}</p>
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => newChat()}
