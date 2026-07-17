@@ -12,6 +12,8 @@ from api.routes import router
 from api.alerts import router as alerts_router
 from api.auto_articles import router as auto_articles_router
 from api.enterprise import router as enterprise_router
+from api.v2 import router as v2_router
+from core.sso import router as sso_router
 from core.alert_scheduler import start_scheduler, stop_scheduler
 from core.article_scheduler import (
     start_scheduler as start_article_scheduler,
@@ -64,6 +66,8 @@ app.include_router(router)
 app.include_router(alerts_router)
 app.include_router(auto_articles_router)
 app.include_router(enterprise_router)
+app.include_router(sso_router)
+app.include_router(v2_router)
 
 
 @app.get("/health")

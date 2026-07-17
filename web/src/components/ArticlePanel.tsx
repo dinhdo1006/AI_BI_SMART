@@ -86,6 +86,11 @@ export function ArticlePanel({
                 : null}
             </p>
           )}
+          {article.confidence_label && (
+            <span className="mt-1 inline-block rounded-full border border-teal/30 bg-teal/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal">
+              {article.confidence_label}
+            </span>
+          )}
         </div>
         <div className="flex gap-2">
           <button

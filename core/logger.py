@@ -55,6 +55,7 @@ def log_chat_event(
     intent: str | None = None,
     request_id: str | None = None,
     client_ip: str | None = None,
+    tenant_id: str | None = None,
 ) -> None:
     """Ghi stdout + logs/audit.jsonl cho mỗi request /api/v1/chat."""
     payload: dict[str, Any] = {
@@ -69,6 +70,8 @@ def log_chat_event(
         "viz_only": viz_only,
         "from_cache": from_cache,
     }
+    if tenant_id:
+        payload["tenant_id"] = tenant_id
     if request_id:
         payload["request_id"] = request_id
     if client_ip:

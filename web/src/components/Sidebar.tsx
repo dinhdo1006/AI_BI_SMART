@@ -154,6 +154,16 @@ export function Sidebar() {
               Thoát
             </button>
           )}
+          {roleLabel === "admin" && (
+            <a
+              href="/monitoring"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-line bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-teal"
+            >
+              Monitoring
+            </a>
+          )}
         </div>
         {loginOpen && (
           <div className="mt-2 space-y-2 rounded-xl border border-line bg-white/95 p-3">

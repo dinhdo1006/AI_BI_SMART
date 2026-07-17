@@ -176,15 +176,17 @@ def _normalize_query(query: str) -> str:
     return " ".join(query.strip().casefold().split())
 
 
-def make_cache_key(domain_id: str, query: str) -> str:
-    """Khóa cache: domain + câu hỏi chuẩn hóa (không phụ thuộc lịch sử chat)."""
-    payload = f"{domain_id}\0{_normalize_query(query)}"
+def make_cache_key(domain_id: str, query: str, tenant_id: str | None = None) -> str:
+    """Khóa cache: domain + câu hỏi chuẩn hóa + tenant (không phụ thuộc lịch sử chat)."""
+    tid = (tenant_id or "").strip() or "_"
+    payload = f"{domain_id}\0{tid}\0{_normalize_query(query)}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def make_semantic_key(domain_id: str, query: str) -> str:
-    """Khóa semantic: domain + fingerprint token (câu diễn đạt khác nhau cùng ý)."""
-    payload = f"{domain_id}\0sem\0{semantic_fingerprint(query)}"
+def make_semantic_key(domain_id: str, query: str, tenant_id: str | None = None) -> str:
+    """Khóa semantic: domain + fingerprint token + tenant."""
+    tid = (tenant_id or "").strip() or "_"
+    payload = f"{domain_id}\0{tid}\0sem\0{semantic_fingerprint(query)}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -259,13 +261,15 @@ def _load_response(row: sqlite3.Row, *, semantic: bool) -> dict[str, Any] | None
     return data
 
 
-def get_cached_response(domain_id: str, query: str) -> dict[str, Any] | None:
+def get_cached_response(
+    domain_id: str, query: str, tenant_id: str | None = None
+) -> dict[str, Any] | None:
     """Trả response dict nếu còn hạn; None nếu miss hoặc cache tắt."""
     if not is_query_cache_enabled():
         return None
 
-    key = make_cache_key(domain_id, query)
-    sem_key = make_semantic_key(domain_id, query)
+    key = make_cache_key(domain_id, query, tenant_id)
+    sem_key = make_semantic_key(domain_id, query, tenant_id)
     now = time.time()
     q_tokens = semantic_tokens(query)
     threshold = _semantic_jaccard_threshold()
@@ -346,7 +350,12 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def set_cached_response(domain_id: str, query: str, response: dict[str, Any]) -> None:
+def set_cached_response(
+    domain_id: str,
+    query: str,
+    response: dict[str, Any],
+    tenant_id: str | None = None,
+) -> None:
     """Lưu response thành công / empty (không lưu lỗi)."""
     if not is_query_cache_enabled():
         return
@@ -357,8 +366,8 @@ def set_cached_response(domain_id: str, query: str, response: dict[str, Any]) ->
     if response.get("viz_only"):
         return
 
-    key = make_cache_key(domain_id, query)
-    sem_key = make_semantic_key(domain_id, query)
+    key = make_cache_key(domain_id, query, tenant_id)
+    sem_key = make_semantic_key(domain_id, query, tenant_id)
     now = time.time()
     ttl = _ttl_seconds()
     payload = {

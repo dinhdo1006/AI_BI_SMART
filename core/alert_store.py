@@ -54,6 +54,15 @@ def _conn() -> sqlite3.Connection:
         )
         """
     )
+    # Thêm tenant_id nếu chưa có (migration an toàn)
+    cols_rules = {r["name"] for r in conn.execute("PRAGMA table_info(alert_rules)").fetchall()}
+    cols_events = {r["name"] for r in conn.execute("PRAGMA table_info(alert_events)").fetchall()}
+    if "tenant_id" not in cols_rules:
+        conn.execute("ALTER TABLE alert_rules ADD COLUMN tenant_id TEXT DEFAULT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_rules_tenant ON alert_rules(tenant_id)")
+    if "tenant_id" not in cols_events:
+        conn.execute("ALTER TABLE alert_events ADD COLUMN tenant_id TEXT DEFAULT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_tenant ON alert_events(tenant_id)")
     conn.commit()
     return conn
 
@@ -62,6 +71,7 @@ def _row_to_rule(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": row["id"],
         "domain_id": row["domain_id"],
+        "tenant_id": row["tenant_id"] if "tenant_id" in row.keys() else None,
         "name": row["name"],
         "metric_key": row["metric_key"],
         "operator": row["operator"],
@@ -85,6 +95,7 @@ def create_rule(
     operator: str,
     threshold: float,
     target: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     rule_id = uuid.uuid4().hex[:12]
     created = _utc_now()
@@ -95,8 +106,8 @@ def create_rule(
                 """
                 INSERT INTO alert_rules
                 (id, domain_id, name, metric_key, operator, threshold, target,
-                 enabled, created_at, last_triggered)
-                VALUES (?,?,?,?,?,?,?,1,?,0)
+                 enabled, created_at, last_triggered, tenant_id)
+                VALUES (?,?,?,?,?,?,?,1,?,0,?)
                 """,
                 (
                     rule_id,
@@ -107,6 +118,7 @@ def create_rule(
                     float(threshold),
                     target,
                     created,
+                    tenant_id,
                 ),
             )
             conn.commit()
@@ -128,20 +140,23 @@ def get_rule(rule_id: str) -> dict[str, Any] | None:
     return _row_to_rule(row) if row else None
 
 
-def list_rules(domain_id: str | None = None) -> list[dict[str, Any]]:
+def list_rules(domain_id: str | None = None, tenant_id: str | None = None) -> list[dict[str, Any]]:
     with _LOCK:
         conn = _conn()
         try:
+            wheres: list[str] = []
+            params: list[Any] = []
             if domain_id:
-                rows = conn.execute(
-                    "SELECT * FROM alert_rules WHERE domain_id = ? "
-                    "ORDER BY created_at DESC",
-                    (domain_id,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM alert_rules ORDER BY created_at DESC"
-                ).fetchall()
+                wheres.append("domain_id = ?")
+                params.append(domain_id)
+            if tenant_id:
+                wheres.append("tenant_id = ?")
+                params.append(tenant_id)
+            where_sql = f"WHERE {' AND '.join(wheres)}" if wheres else ""
+            rows = conn.execute(
+                f"SELECT * FROM alert_rules {where_sql} ORDER BY created_at DESC",
+                params,
+            ).fetchall()
         finally:
             conn.close()
     return [_row_to_rule(r) for r in rows]

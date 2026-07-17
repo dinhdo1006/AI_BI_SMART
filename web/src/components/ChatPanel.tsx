@@ -281,7 +281,7 @@ export function ChatPanel() {
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.tsv,.txt,.xlsx,.xls"
+            accept=".csv,.tsv,.txt,.xlsx,.xls,.pdf"
             className="hidden"
             onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
           />

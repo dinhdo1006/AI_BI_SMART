@@ -27,6 +27,8 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/v1/health",
     "/api/v1/auth/login",
     "/api/v1/tenant/branding",
+    "/api/v1/sso",        # SSO login / callback / metadata
+    "/api/v1/embed/",     # Public embed dashboard
 )
 
 _RATE_BUCKETS: dict[str, deque[float]] = defaultdict(deque)

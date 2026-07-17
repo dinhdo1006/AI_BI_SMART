@@ -31,6 +31,16 @@ _TA_RE = re.compile(
     re.IGNORECASE,
 )
 
+_VP_RE = re.compile(
+    r"("
+    r"volume\s*profile|ph[aâ]n\s*b[ốo]\s*kh[ốo]i\s*l[ươu][ợo]ng|"
+    r"kh[ốo]i\s*l[ươu][ợo]ng\s*theo\s*gi[aá]|"
+    r"gi[aá]\s*c[ốo]\s*kh[ốo]i\s*l[ươu][ợo]ng\s*l[ớo]n|"
+    r"poc\b|value\s*area|vah\b|val\b|hvn\b|lvn\b"
+    r")",
+    re.IGNORECASE,
+)
+
 
 def _normalize(text: str) -> str:
     lowered = (text or "").lower()
@@ -44,6 +54,10 @@ def is_peer_group_query(query: str) -> bool:
 
 def is_technical_analysis_query(query: str) -> bool:
     return bool(_TA_RE.search(query or ""))
+
+
+def is_volume_profile_query(query: str) -> bool:
+    return bool(_VP_RE.search(query or ""))
 
 
 def _escape_ticker(ticker: str) -> str:
@@ -124,6 +138,51 @@ LIMIT {n}
     )
 
 
+def build_volume_profile_sql(ticker: str, *, days: int = 60, buckets: int = 20) -> str:
+    """
+    Volume Profile: gom khối lượng giao dịch theo dải giá (price bucket).
+    Trả (price_bucket, total_volume, trade_count) sắp xếp từ giá thấp → cao.
+    Dùng bảng price_history (trade_date, ticker, close_price, volume).
+    """
+    t = _escape_ticker(ticker)
+    n = max(10, min(int(days), 252))
+    b = max(5, min(int(buckets), 50))
+    return f"""
+WITH recent AS (
+  SELECT
+    close_price,
+    volume
+  FROM price_history
+  WHERE UPPER(ticker) = '{t}'
+    AND trade_date >= CURRENT_DATE - INTERVAL '{n} days'
+    AND close_price > 0
+    AND volume > 0
+),
+bounds AS (
+  SELECT MIN(close_price) AS lo, MAX(close_price) AS hi FROM recent
+),
+bucketed AS (
+  SELECT
+    ROUND(
+      bounds.lo + (bounds.hi - bounds.lo) * (
+        FLOOR({b} * (r.close_price - bounds.lo) / NULLIF(bounds.hi - bounds.lo, 0))
+        / {b}.0
+      ),
+      2
+    ) AS price_bucket,
+    r.volume
+  FROM recent r, bounds
+)
+SELECT
+  price_bucket,
+  SUM(volume)          AS total_volume,
+  COUNT(*)             AS trade_count
+FROM bucketed
+GROUP BY price_bucket
+ORDER BY price_bucket ASC
+""".strip()
+
+
 def try_finance_analytics_sql(
     user_query: str,
     *,
@@ -159,6 +218,23 @@ def try_finance_analytics_sql(
             "kind": "technical_analysis",
             "ticker": ticker,
             "sql": build_technical_analysis_sql(ticker, days=days),
+        }
+
+    if is_volume_profile_query(q):
+        if not ticker:
+            return None
+        days = 60
+        m = re.search(r"(\d+)\s*(phiên|phien|ngày|ngay|day|days)", _normalize(q))
+        if m:
+            days = max(10, min(int(m.group(1)), 252))
+        buckets = 20
+        mb = re.search(r"(\d+)\s*(bucket|d[aả]i|mức|thanh)", _normalize(q))
+        if mb:
+            buckets = max(5, min(int(mb.group(1)), 50))
+        return {
+            "kind": "volume_profile",
+            "ticker": ticker,
+            "sql": build_volume_profile_sql(ticker, days=days, buckets=buckets),
         }
 
     return None

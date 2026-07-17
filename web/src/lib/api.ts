@@ -315,6 +315,7 @@ export async function postArticle(params: {
   question: string;
   data: Record<string, unknown>[];
   insightSummary?: string;
+  sqlSource?: string | null;
   onProgress?: (step: string) => void;
 }): Promise<ArticleResponse> {
   // Ưu tiên SSE để hiện progress; fallback POST cũ nếu stream lỗi
@@ -333,6 +334,7 @@ export async function postArticle(params: {
       question: params.question,
       data: params.data,
       insight_summary: params.insightSummary || "",
+      sql_source: params.sqlSource ?? null,
     }),
   });
   if (!res.ok) {
@@ -362,6 +364,7 @@ export async function reviseArticle(params: {
   instruction: string;
   insightSummary?: string;
   data?: Record<string, unknown>[];
+  sqlSource?: string | null;
 }): Promise<ArticleResponse> {
   const res = await apiFetch("/api/v1/revise_article", {
     method: "POST",
@@ -373,6 +376,7 @@ export async function reviseArticle(params: {
       instruction: params.instruction,
       insight_summary: params.insightSummary || "",
       data: params.data || [],
+      sql_source: params.sqlSource ?? null,
     }),
   });
   if (!res.ok) {
@@ -399,6 +403,7 @@ async function postArticleStream(params: {
   question: string;
   data: Record<string, unknown>[];
   insightSummary?: string;
+  sqlSource?: string | null;
   onProgress?: (step: string) => void;
 }): Promise<ArticleResponse | null> {
   const res = await apiFetch("/api/v1/generate_article/stream", {
@@ -412,6 +417,7 @@ async function postArticleStream(params: {
       question: params.question,
       data: params.data,
       insight_summary: params.insightSummary || "",
+      sql_source: params.sqlSource ?? null,
     }),
   });
 
@@ -490,6 +496,64 @@ export async function exportWord(params: {
   const a = document.createElement("a");
   a.href = url;
   a.download = "bao-cao-bi.docx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportPptx(params: {
+  title?: string;
+  domainId: string;
+  reports: Array<{
+    query: string;
+    insight?: string;
+    data?: Record<string, unknown>[];
+  }>;
+}): Promise<void> {
+  const res = await apiFetch("/api/v1/export/pptx", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: params.title || "Báo cáo BI",
+      domain_id: params.domainId,
+      reports: params.reports,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "bao-cao-bi.pptx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportPdf(params: {
+  title?: string;
+  domainId: string;
+  reports: Array<{
+    query: string;
+    insight?: string;
+    data?: Record<string, unknown>[];
+  }>;
+}): Promise<void> {
+  const res = await apiFetch("/api/v1/export/pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: params.title || "Báo cáo BI",
+      domain_id: params.domainId,
+      reports: params.reports,
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const cd = res.headers.get("content-disposition") || "";
+  const fname = cd.includes(".html") ? "bao-cao-bi.html" : "bao-cao-bi.pdf";
+  a.download = fname;
   a.click();
   URL.revokeObjectURL(url);
 }

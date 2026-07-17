@@ -25,6 +25,8 @@ PERMISSIONS: dict[str, frozenset[Role]] = {
     "admin.keys": frozenset({"admin"}),
     "admin.branding": frozenset({"admin"}),
     "admin.jobs": frozenset({"admin"}),
+    "admin.monitoring": frozenset({"admin"}),
+    "export": frozenset({"admin", "analyst"}),
 }
 
 

@@ -13,13 +13,15 @@ from pydantic import BaseModel, Field
 from core.auth import auth_enabled, get_request_identity, require_permission
 from core.config_loader import list_available_domains, load_domain_config
 from core.cross_domain import detect_cross_domain_request
-from core.dashboard_store import create_dashboard, get_dashboard
+from core.cross_domain_join import execute_cross_domain, plan_cross_domain_query
+from core.dashboard_store import create_dashboard, get_dashboard, set_dashboard_public
 from core.db_dialect import detect_dialect, dialect_label
 from core.db_executor import DbQueryError, execute_query
 from core.domain_explorer import build_domain_explore
 from core.insight_stats import compute_insight_stats
 from core.llm_agent import generate_insight, generate_sql, repair_sql
 from core.logger import log_chat_event, log_feedback
+from core.monitoring import compute_metrics
 from core.narrative_planner import generate_article, revise_article
 from core.query_cache import get_cached_response, set_cached_response
 from core.router import (
@@ -46,6 +48,7 @@ from core.sql_shape_validator import (
     validate_shape,
 )
 from utils.report_export import create_word_report_api
+from utils.pptx_export import create_pptx_report, create_pdf_report
 
 import json
 import pandas as pd
@@ -264,6 +267,10 @@ class ArticleRequest(BaseModel):
         default=None,
         description="Ảnh biểu đồ PNG (data URL hoặc base64) để chèn vào bài",
     )
+    sql_source: str | None = Field(
+        default=None,
+        description="Nguồn dữ liệu gốc (fast_path/llm/repair/cache/upload…)",
+    )
 
 
 class ArticleReviseRequest(BaseModel):
@@ -285,6 +292,10 @@ class ArticleReviseRequest(BaseModel):
         default=None,
         description="Stats đã tính sẵn (optional)",
     )
+    sql_source: str | None = Field(
+        default=None,
+        description="Nguồn dữ liệu gốc truyền lại để giữ confidence",
+    )
 
 
 class ArticleResponse(BaseModel):
@@ -301,6 +312,9 @@ class ArticleResponse(BaseModel):
     template_name: str = ""
     generated_at: str = ""
     fact_check: dict[str, Any] | None = None
+    # Nguồn dữ liệu & confidence (giống ChatResponse)
+    sql_source: str | None = None
+    confidence_label: str | None = None
 
 
 class WordExportRequest(BaseModel):
@@ -316,6 +330,7 @@ class DashboardCreateRequest(BaseModel):
     title: str = "Dashboard"
     domain_id: str
     reports: list[dict[str, Any]] = Field(default_factory=list)
+    is_public: bool = False
 
 
 class FeedbackRequest(BaseModel):
@@ -358,10 +373,10 @@ async def analyze_upload_endpoint(
     require_permission(http_request, "upload")
     filename = file.filename or "upload.csv"
     lower = filename.lower()
-    if not lower.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xls")):
+    if not lower.endswith((".csv", ".tsv", ".txt", ".xlsx", ".xls", ".pdf")):
         raise HTTPException(
             status_code=400,
-            detail="Chỉ hỗ trợ CSV/TSV/TXT/XLSX",
+            detail="Chỉ hỗ trợ CSV/TSV/TXT/XLSX/PDF",
         )
     content = await file.read()
     if not content:
@@ -371,10 +386,31 @@ async def analyze_upload_endpoint(
 
     try:
         rows = parse_upload_bytes(filename, content)
+
+        # Thử enrich từ DB: nếu domain có DB và câu hỏi đề cập mã cụ thể
+        db_context: list[dict[str, Any]] | None = None
+        if question and domain_id:
+            try:
+                from core.config_loader import load_domain_config
+                from core.db_engine import get_engine
+                from core.finance_analytics import try_finance_analytics_sql
+                domain_cfg = load_domain_config(domain_id)
+                db_url = domain_cfg.get("db_url", "")
+                fa = try_finance_analytics_sql(question, db_url=db_url)
+                if fa and db_url:
+                    from sqlalchemy import text as sa_text
+                    eng = get_engine(db_url)
+                    with eng.connect() as conn:
+                        db_rows = conn.execute(sa_text(fa["sql"])).mappings().fetchall()
+                        db_context = [dict(r) for r in db_rows[:200]]
+            except Exception:
+                db_context = None
+
         result = analyze_uploaded_table(
             question=question,
             rows=rows,
             filename=filename,
+            db_context=db_context,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -467,6 +503,27 @@ def get_domains_health() -> dict[str, Any]:
                 "detail": str(exc),
             }
     return results
+
+
+
+@router.get("/monitoring/metrics")
+def get_monitoring_metrics(
+    hours: int = 24,
+    domain_id: str | None = None,
+    http_request: Request = None,  # type: ignore[assignment]
+) -> dict[str, Any]:
+    """Metrics tổng hợp từ audit log: success rate, latency, cache hit, sql_source breakdown."""
+    require_permission(http_request, "admin.monitoring")
+    identity = get_request_identity(http_request) if http_request else {}
+    tid = identity.get("tenant_id")
+    if tid in ("platform", ""):
+        tid = None
+    hours = max(1, min(int(hours), 720))
+    return compute_metrics(
+        hours=hours,
+        tenant_id=str(tid) if tid else None,
+        domain_id=domain_id,
+    )
 
 
 @router.get("/data-quality")
@@ -614,6 +671,23 @@ def generate_article_endpoint(
         ) from exc
 
 
+def _article_confidence_label(sql_source: str | None) -> str | None:
+    """Chuyển sql_source thành nhãn hiển thị cho bài viết."""
+    _MAP = {
+        "fast_path": "Fast-path",
+        "fast_path_fallback": "Fast-path (fallback)",
+        "llm": "LLM",
+        "repair": "LLM (repair)",
+        "few_shot_retrieval": "Few-shot",
+        "cache": "Cache",
+        "upload": "Upload",
+        "viz_only": "Viz-only",
+    }
+    if not sql_source:
+        return None
+    return _MAP.get(sql_source, sql_source)
+
+
 def _build_article_response(
     request: ArticleRequest,
     result: dict[str, Any],
@@ -661,6 +735,8 @@ def _build_article_response(
         template_name=str(result.get("template_name") or ""),
         generated_at=str(result.get("generated_at") or ""),
         fact_check=result.get("fact_check"),
+        sql_source=request.sql_source,
+        confidence_label=_article_confidence_label(request.sql_source),
     )
 
 
@@ -710,6 +786,8 @@ def revise_article_endpoint(
         domain_id=request.domain_id,
         question=request.question,
         fact_check=result.get("fact_check"),
+        sql_source=request.sql_source,
+        confidence_label=_article_confidence_label(request.sql_source),
     )
 
 
@@ -842,6 +920,90 @@ def export_word_endpoint(request: WordExportRequest) -> Response:
     )
 
 
+class PptxExportRequest(BaseModel):
+    title: str = "Báo cáo BI"
+    domain_id: str = ""
+    reports: list[dict[str, Any]] = Field(default_factory=list)
+    branding: dict[str, str] | None = None
+
+
+@router.post("/export/pptx")
+def export_pptx_endpoint(
+    request: PptxExportRequest, http_request: Request
+) -> Response:
+    """Xuất báo cáo PowerPoint (.pptx) có brand công ty."""
+    require_permission(http_request, "export")
+    if not request.reports:
+        raise HTTPException(status_code=400, detail="reports không được rỗng")
+
+    # Lấy branding từ tenant nếu không truyền
+    branding = request.branding
+    if not branding:
+        from core.tenancy import get_tenant
+        identity = get_request_identity(http_request)
+        tid = identity.get("tenant_id")
+        if tid and tid not in ("platform", ""):
+            tenant = get_tenant(str(tid))
+            branding = (tenant or {}).get("branding") or None
+
+    try:
+        content = create_pptx_report(
+            request.reports,
+            title=request.title,
+            branding=branding,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất PPTX: {exc}") from exc
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": 'attachment; filename="bao-cao-bi.pptx"'},
+    )
+
+
+@router.post("/export/pdf")
+def export_pdf_endpoint(
+    request: PptxExportRequest, http_request: Request
+) -> Response:
+    """Xuất báo cáo PDF có brand công ty (weasyprint nếu có, fallback HTML)."""
+    require_permission(http_request, "export")
+    if not request.reports:
+        raise HTTPException(status_code=400, detail="reports không được rỗng")
+
+    branding = request.branding
+    if not branding:
+        from core.tenancy import get_tenant
+        identity = get_request_identity(http_request)
+        tid = identity.get("tenant_id")
+        if tid and tid not in ("platform", ""):
+            tenant = get_tenant(str(tid))
+            branding = (tenant or {}).get("branding") or None
+
+    try:
+        content = create_pdf_report(
+            request.reports,
+            title=request.title,
+            branding=branding,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất PDF: {exc}") from exc
+
+    # Nếu fallback HTML thì trả text/html
+    media_type = "application/pdf"
+    filename = "bao-cao-bi.pdf"
+    if content[:5] == b"<!DOC" or content[:9] == b"<!DOCTYPE":
+        media_type = "text/html; charset=utf-8"
+        filename = "bao-cao-bi.html"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/dashboards")
 def create_dashboard_endpoint(
     request: DashboardCreateRequest,
@@ -860,8 +1022,9 @@ def create_dashboard_endpoint(
         domain_id=request.domain_id,
         reports=request.reports,
         tenant_id=str(tid) if tid else None,
+        is_public=request.is_public,
     )
-    return {"id": payload["id"], "title": payload["title"]}
+    return {"id": payload["id"], "title": payload["title"], "is_public": payload.get("is_public", False)}
 
 
 @router.get("/dashboards/{dash_id}")
@@ -874,6 +1037,33 @@ def get_dashboard_endpoint(dash_id: str, http_request: Request) -> dict[str, Any
     data = get_dashboard(dash_id, tenant_id=str(tid) if tid else None)
     if not data:
         raise HTTPException(status_code=404, detail="Dashboard không tồn tại")
+    return data
+
+
+@router.patch("/dashboards/{dash_id}/public")
+def set_dashboard_public_endpoint(
+    dash_id: str,
+    body: dict[str, Any],
+    http_request: Request,
+) -> dict[str, Any]:
+    """Bật/tắt public embed cho dashboard (admin hoặc owner)."""
+    require_permission(http_request, "dashboard.write")
+    is_public = bool(body.get("is_public", False))
+    ok = set_dashboard_public(dash_id, is_public)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Dashboard không tồn tại")
+    return {"id": dash_id, "is_public": is_public}
+
+
+@router.get("/embed/dashboard/{dash_id}")
+def embed_dashboard_endpoint(dash_id: str) -> dict[str, Any]:
+    """Public embed — không cần login; chỉ trả dashboard nếu is_public=True."""
+    data = get_dashboard(dash_id, allow_public=True)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="Dashboard không tồn tại hoặc chưa được công khai.",
+        )
     return data
 
 
@@ -897,6 +1087,10 @@ def chat(
     intent: str | None = None
     request_id = uuid.uuid4().hex[:12]
     client_ip = _client_ip(http_request)
+    _identity = get_request_identity(http_request)
+    tenant_id: str | None = _identity.get("tenant_id") or None
+    if tenant_id in ("platform", ""):
+        tenant_id = None
 
     history_dicts: list[dict[str, str]] = [
         {"role": m.role, "content": m.content} for m in request.history
@@ -926,6 +1120,7 @@ def chat(
             intent=intent,
             request_id=request_id,
             client_ip=client_ip,
+            tenant_id=tenant_id,
         )
 
     # --- Nhánh nhanh: chỉ đổi loại biểu đồ, tái sử dụng data ---
@@ -985,7 +1180,7 @@ def chat(
         return resp
 
     # --- Cache: câu hỏi đã hỏi trước đó → trả ngay, bỏ qua LLM + DB ---
-    cached = get_cached_response(request.domain_id, request.query)
+    cached = get_cached_response(request.domain_id, request.query, tenant_id)
     if cached:
         sql_source = str(cached.get("sql_source") or "cache")
         sql = str(cached.get("sql_query") or "")
@@ -1013,6 +1208,53 @@ def chat(
         available_domains=list_available_domains(),
     )
     if cross:
+        available = list_available_domains()
+        # Thử cross-domain join thật nếu có đủ domain
+        cd_plan = plan_cross_domain_query(request.query, available_domains=available)
+        if cd_plan and len(cd_plan) >= 2:
+            def _sql_exec(domain_id: str, question: str) -> list[dict[str, Any]]:
+                try:
+                    cfg = load_domain_config(domain_id)
+                    db_u = cfg.get("db_url", "")
+                    from core.sql_fast_path import try_fast_sql as _try_fast
+                    _sql = _try_fast(domain_id, question, db_url=db_u)
+                    if not _sql:
+                        return []
+                    from sqlalchemy import text as sa_text
+                    from core.db_engine import get_engine
+                    eng = get_engine(db_u)
+                    with eng.connect() as conn:
+                        rows = conn.execute(sa_text(_sql)).mappings().fetchall()
+                        return [dict(r) for r in rows[:300]]
+                except Exception:
+                    return []
+
+            cd_result = execute_cross_domain(cd_plan, sql_executor=_sql_exec)
+            if cd_result and cd_result.get("data"):
+                cd_rows = cd_result["data"]
+                cd_domains = ", ".join(cd_result.get("domains_used") or [])
+                cd_insight = generate_insight(
+                    request.query, cd_rows,
+                    precomputed_stats=None,
+                )
+                sql_source = "cross_domain_join"
+                _log_out("success", row_count=len(cd_rows))
+                return ChatResponse(
+                    status="success",
+                    domain_id=request.domain_id,
+                    query=request.query,
+                    sql_query=f"(cross-domain join: {cd_domains})",
+                    data=cd_rows,
+                    insight=cd_insight,
+                    row_count=len(cd_rows),
+                    chart_type="table",
+                    column_labels=labels,
+                    intent=INTENT_SQL,
+                    sql_source=sql_source,
+                    shape_notes=[f"Kết hợp dữ liệu từ: {cd_domains}"],
+                )
+
+        # Fallback: guard message
         sql_source = "cross_domain_guard"
         sql = "(không truy vấn — liên domain chưa sẵn sàng)"
         _log_out("success", row_count=0)
@@ -1261,7 +1503,7 @@ def chat(
             sql_source=sql_source,
         )
         set_cached_response(
-            request.domain_id, request.query, resp.model_dump(mode="json")
+            request.domain_id, request.query, resp.model_dump(mode="json"), tenant_id
         )
         return resp
 
@@ -1329,7 +1571,7 @@ def chat(
         shape_notes=shape_notes,
     )
     set_cached_response(
-        request.domain_id, request.query, resp.model_dump(mode="json")
+        request.domain_id, request.query, resp.model_dump(mode="json"), tenant_id
     )
     return resp
 

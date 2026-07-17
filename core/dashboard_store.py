@@ -35,6 +35,10 @@ def _conn() -> sqlite3.Connection:
         conn.execute(
             "ALTER TABLE dashboards ADD COLUMN tenant_id TEXT DEFAULT NULL"
         )
+    if "is_public" not in cols:
+        conn.execute(
+            "ALTER TABLE dashboards ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0"
+        )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_dash_tenant ON dashboards(tenant_id)"
     )
@@ -48,6 +52,7 @@ def create_dashboard(
     domain_id: str,
     reports: list[dict[str, Any]],
     tenant_id: str | None = None,
+    is_public: bool = False,
 ) -> dict[str, Any]:
     dash_id = uuid.uuid4().hex[:12]
     created = datetime.now(timezone.utc).isoformat()
@@ -58,6 +63,7 @@ def create_dashboard(
         "tenant_id": tenant_id,
         "created_at": created,
         "reports": reports,
+        "is_public": is_public,
     }
     with _LOCK:
         conn = _conn()
@@ -65,8 +71,8 @@ def create_dashboard(
             conn.execute(
                 """
                 INSERT INTO dashboards
-                (id, title, domain_id, created_at, payload, tenant_id)
-                VALUES (?,?,?,?,?,?)
+                (id, title, domain_id, created_at, payload, tenant_id, is_public)
+                VALUES (?,?,?,?,?,?,?)
                 """,
                 (
                     dash_id,
@@ -75,6 +81,7 @@ def create_dashboard(
                     created,
                     json.dumps(payload, ensure_ascii=False),
                     tenant_id,
+                    1 if is_public else 0,
                 ),
             )
             conn.commit()
@@ -83,16 +90,43 @@ def create_dashboard(
     return {"id": dash_id, **payload}
 
 
+def set_dashboard_public(dash_id: str, is_public: bool) -> bool:
+    """Bật/tắt public embed cho dashboard. Trả True nếu cập nhật thành công."""
+    with _LOCK:
+        conn = _conn()
+        try:
+            # Cập nhật cả payload và cột is_public
+            row = conn.execute(
+                "SELECT payload FROM dashboards WHERE id = ?", (dash_id,)
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                data = json.loads(row[0])
+            except json.JSONDecodeError:
+                data = {}
+            data["is_public"] = is_public
+            conn.execute(
+                "UPDATE dashboards SET is_public = ?, payload = ? WHERE id = ?",
+                (1 if is_public else 0, json.dumps(data, ensure_ascii=False), dash_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
 def get_dashboard(
     dash_id: str,
     *,
     tenant_id: str | None = None,
+    allow_public: bool = False,
 ) -> dict[str, Any] | None:
     with _LOCK:
         conn = _conn()
         try:
             row = conn.execute(
-                "SELECT payload, tenant_id FROM dashboards WHERE id = ?",
+                "SELECT payload, tenant_id, is_public FROM dashboards WHERE id = ?",
                 (dash_id,),
             ).fetchone()
         finally:
@@ -103,6 +137,12 @@ def get_dashboard(
         data = json.loads(row[0])
     except json.JSONDecodeError:
         return None
+    is_pub = bool(row[2])
+
+    # Public embed — không cần kiểm tra tenant
+    if allow_public and is_pub:
+        return data
+
     owner = row[1] or data.get("tenant_id")
     # Cô lập tenant: nếu dashboard có owner và request có tenant khác → ẩn
     if (

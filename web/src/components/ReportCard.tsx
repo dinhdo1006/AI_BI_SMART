@@ -17,6 +17,8 @@ import {
   reviseArticle,
   saveDashboard,
   exportWord,
+  exportPptx,
+  exportPdf,
 } from "@/lib/api";
 import type { ChartType, ChatResponse } from "@/lib/types";
 import { downloadCsv, downloadText, friendlyLabel } from "@/lib/format";
@@ -108,6 +110,7 @@ export function ReportCard({
   const [sendingVote, setSendingVote] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dashUrl, setDashUrl] = useState<string | null>(null);
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const getPngRef = useRef<(() => string | null) | null>(null);
 
   const labels = useMemo(
@@ -200,6 +203,7 @@ export function ReportCard({
         question: payload.query,
         data: payload.data,
         insightSummary: resolvedInsight,
+        sqlSource: payload.sql_source ?? null,
         onProgress: (step) => setWritingLabel(step),
       });
       // Ghép ảnh chart phía client — không gửi API
@@ -237,6 +241,7 @@ export function ReportCard({
       instruction,
       insightSummary: resolvedInsight,
       data: payload.data,
+      sqlSource: current.sql_source ?? payload.sql_source ?? null,
     });
     if (revised.error) return revised.error;
     updateMessage(messageId, {
@@ -273,6 +278,38 @@ export function ReportCard({
     }
   }
 
+  async function downloadPptx() {
+    if (!payload.data?.length) return;
+    setExporting(true);
+    try {
+      await exportPptx({
+        title: payload.query.slice(0, 80),
+        domainId,
+        reports: [{ query: payload.query, insight: resolvedInsight, data: payload.data }],
+      });
+    } catch (err) {
+      alert(`Không thể xuất PPTX: ${err instanceof Error ? err.message : "Lỗi không rõ"}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function downloadPdf() {
+    if (!payload.data?.length) return;
+    setExporting(true);
+    try {
+      await exportPdf({
+        title: payload.query.slice(0, 80),
+        domainId,
+        reports: [{ query: payload.query, insight: resolvedInsight, data: payload.data }],
+      });
+    } catch (err) {
+      alert(`Không thể xuất PDF: ${err instanceof Error ? err.message : "Lỗi không rõ"}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function pinDashboard() {
     setSavingDash(true);
     try {
@@ -294,7 +331,11 @@ export function ReportCard({
           },
         ],
       });
-      if (res.id) setDashUrl(`/dashboard/${res.id}`);
+      if (res.id) {
+        setDashUrl(`/dashboard/${res.id}`);
+        // Tạo embed URL public — user tự bật sau nếu muốn
+        setEmbedUrl(`/embed/${res.id}`);
+      }
     } finally {
       setSavingDash(false);
     }
@@ -519,6 +560,24 @@ export function ReportCard({
             </button>
             <button
               type="button"
+              disabled={exporting || !payload.data?.length}
+              onClick={() => void downloadPptx()}
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-foam px-3 py-2 text-sm font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink disabled:opacity-50"
+            >
+              <FileText className="h-4 w-4" />
+              {exporting ? "PPTX…" : "PPTX"}
+            </button>
+            <button
+              type="button"
+              disabled={exporting || !payload.data?.length}
+              onClick={() => void downloadPdf()}
+              className="inline-flex items-center gap-2 rounded-xl border border-line bg-foam px-3 py-2 text-sm font-semibold text-ink-soft transition hover:border-teal/30 hover:text-ink disabled:opacity-50"
+            >
+              <FileText className="h-4 w-4" />
+              {exporting ? "PDF…" : "PDF"}
+            </button>
+            <button
+              type="button"
               disabled={writing}
               onClick={() => void writeArticle()}
               className="inline-flex items-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm font-semibold text-foam transition hover:bg-ink-soft disabled:opacity-50"
@@ -543,6 +602,17 @@ export function ReportCard({
                 className="text-xs font-semibold text-teal underline"
               >
                 Mở dashboard
+              </a>
+            )}
+            {embedUrl && (
+              <a
+                href={embedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-semibold text-ink-soft underline hover:text-teal"
+                title="Link embed công khai (không cần login)"
+              >
+                Embed
               </a>
             )}
 

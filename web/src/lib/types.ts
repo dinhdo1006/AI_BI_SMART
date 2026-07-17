@@ -129,6 +129,10 @@ export type ArticleResponse = {
   generated_at?: string;
   fact_check?: ArticleFactCheck | null;
   error?: string;
+  /** Nguồn SQL gốc khi tạo bài (fast_path/llm/repair/cache/upload…) */
+  sql_source?: string | null;
+  /** Nhãn hiển thị cho confidence (ví dụ: "LLM", "Fast-path") */
+  confidence_label?: string | null;
 };
 
 export type DashboardReport = {
