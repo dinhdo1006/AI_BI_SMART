@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.narrative_planner import (
     _default_outline,
     is_finance_domain,
+    revise_article,
 )
 from utils.report_export import split_article_markdown
 
@@ -60,10 +61,43 @@ Theo dõi tiếp.
     assert "Kết luận" in parts["body"]
 
 
+def test_revise_article_uses_instruction(monkeypatch=None) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeLlm:
+        def invoke(self, prompt: str) -> str:
+            captured["prompt"] = prompt
+            return "# Bài đã sửa\n\nLead ngắn hơn.\n\n## Kết luận\n\nTheo dõi."
+
+    import core.narrative_planner as planner
+
+    original_get_llm = planner._get_llm
+    if monkeypatch is not None:
+        monkeypatch.setattr(planner, "_get_llm", lambda **_kwargs: FakeLlm())
+    else:
+        planner._get_llm = lambda **_kwargs: FakeLlm()  # type: ignore[assignment]
+
+    try:
+        result = revise_article(
+            article_markdown="# Bài cũ\n\nNội dung dài.",
+            instruction="Viết ngắn hơn",
+            question="Phân tích FPT",
+        )
+    finally:
+        if monkeypatch is None:
+            planner._get_llm = original_get_llm  # type: ignore[assignment]
+
+    assert "Viết ngắn hơn" in captured["prompt"]
+    assert result["article_markdown"].startswith("# Bài đã sửa")
+    assert result["word_count"] > 0
+    assert result["sections_written"] == 1
+
+
 if __name__ == "__main__":
     test_is_finance_domain()
     test_default_outline_vietstock_for_finance()
     test_default_outline_template_when_matched()
     test_default_outline_bi_for_it()
     test_split_article_markdown()
+    test_revise_article_uses_instruction()
     print("ALL PASSED")

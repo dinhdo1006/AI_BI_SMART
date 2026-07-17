@@ -18,7 +18,7 @@ from core.domain_explorer import build_domain_explore
 from core.insight_stats import compute_insight_stats
 from core.llm_agent import generate_insight, generate_sql, repair_sql
 from core.logger import log_chat_event, log_feedback
-from core.narrative_planner import generate_article
+from core.narrative_planner import generate_article, revise_article
 from core.query_cache import get_cached_response, set_cached_response
 from core.router import (
     INTENT_CHITCHAT,
@@ -260,6 +260,19 @@ class ArticleRequest(BaseModel):
     chart_image_base64: str | None = Field(
         default=None,
         description="Ảnh biểu đồ PNG (data URL hoặc base64) để chèn vào bài",
+    )
+
+
+class ArticleReviseRequest(BaseModel):
+    """Body request cho POST /api/v1/revise_article."""
+
+    domain_id: str = Field(..., description="ID domain")
+    question: str = Field(default="", description="Câu hỏi gốc")
+    article_markdown: str = Field(..., min_length=1, description="Bài hiện tại")
+    instruction: str = Field(..., min_length=1, description="Yêu cầu chỉnh sửa")
+    insight_summary: str = Field(
+        default="",
+        description="Tóm tắt insight hiện có để AI sửa bài đúng ngữ cảnh",
     )
 
 
@@ -562,6 +575,34 @@ def _build_article_response(
         template_id=str(result.get("template_id") or ""),
         template_name=str(result.get("template_name") or ""),
         generated_at=str(result.get("generated_at") or ""),
+    )
+
+
+@router.post("/revise_article", response_model=ArticleResponse)
+def revise_article_endpoint(request: ArticleReviseRequest) -> ArticleResponse:
+    """AI biên tập lại bài đã viết theo chỉ đạo của user."""
+    try:
+        result = revise_article(
+            article_markdown=request.article_markdown,
+            instruction=request.instruction,
+            question=request.question,
+            insight_summary=request.insight_summary or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Lỗi sửa bài (Ollama): {exc}",
+        ) from exc
+
+    return ArticleResponse(
+        article_markdown=str(result["article_markdown"] or ""),
+        outline=result.get("outline") or {},
+        word_count=int(result.get("word_count") or 0),
+        sections_written=int(result.get("sections_written") or 0),
+        domain_id=request.domain_id,
+        question=request.question,
     )
 
 

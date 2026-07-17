@@ -243,6 +243,42 @@ export async function postArticle(params: {
   return (await res.json()) as ArticleResponse;
 }
 
+export async function reviseArticle(params: {
+  domainId: string;
+  question: string;
+  articleMarkdown: string;
+  instruction: string;
+  insightSummary?: string;
+}): Promise<ArticleResponse> {
+  const res = await fetch(apiUrl("/api/v1/revise_article"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      domain_id: params.domainId,
+      question: params.question,
+      article_markdown: params.articleMarkdown,
+      instruction: params.instruction,
+      insight_summary: params.insightSummary || "",
+    }),
+  });
+  if (!res.ok) {
+    const detail = await parseError(res);
+    return {
+      article_markdown: params.articleMarkdown,
+      outline: {},
+      word_count: params.articleMarkdown.split(/\s+/).filter(Boolean).length,
+      domain_id: params.domainId,
+      question: params.question,
+      error:
+        detail ||
+        (res.status === 502 || res.status === 504
+          ? "Ollama timeout hoặc chưa chạy — kiểm tra model INSIGHT_MODEL"
+          : `HTTP ${res.status} ${res.statusText}`),
+    };
+  }
+  return (await res.json()) as ArticleResponse;
+}
+
 /** SSE viết bài — hiện progress từ backend. */
 async function postArticleStream(params: {
   domainId: string;

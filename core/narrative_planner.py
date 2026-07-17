@@ -26,6 +26,7 @@ _OUTLINE_NUM_PREDICT = 600
 _SECTION_NUM_PREDICT = 700
 _FINALIZE_NUM_PREDICT = 1200
 _FULL_ARTICLE_NUM_PREDICT = 2200
+_REVISE_ARTICLE_NUM_PREDICT = 2200
 
 ProgressCb = Callable[[str], None] | None
 
@@ -528,6 +529,68 @@ Bài báo:"""
         f"## Kết luận\n\n"
         f"(Chưa sinh được bài đầy đủ — kiểm tra Ollama / INSIGHT_MODEL.)"
     )
+
+
+def revise_article(
+    *,
+    article_markdown: str,
+    instruction: str,
+    question: str = "",
+    insight_summary: str = "",
+) -> dict[str, Any]:
+    """
+    Chỉnh sửa bài đã viết theo chỉ đạo của user.
+    Không truy vấn lại DB; chỉ biên tập nội dung đang có và giữ nguyên số liệu.
+    """
+    article = (article_markdown or "").strip()
+    ask = (instruction or "").strip()
+    if not article:
+        raise ValueError("Thiếu nội dung bài viết cần sửa")
+    if not ask:
+        raise ValueError("Thiếu yêu cầu chỉnh sửa bài viết")
+
+    prompt = f"""Bạn là biên tập viên phân tích dữ liệu.
+Hãy chỉnh sửa bài Markdown hiện có theo YÊU CẦU SỬA BÀI.
+
+=== NGUYÊN TẮC BẮT BUỘC ===
+1. Giữ nguyên sự thật và mọi số liệu đang có; không bịa thêm số, giá mục tiêu, khuyến nghị đầu tư hoặc nguồn dữ liệu mới.
+2. Nếu user yêu cầu thêm nội dung nhưng bài gốc không có dữ kiện, hãy viết thận trọng và nêu rõ thiếu dữ liệu.
+3. Giữ định dạng Markdown sạch: tiêu đề #, mục ##, không code fence.
+4. Không nhắc đến LLM, prompt, SQL hoặc quá trình nội bộ.
+5. Trả về TOÀN BỘ bài sau chỉnh sửa, không chỉ phần thay đổi.
+
+=== CÂU HỎI GỐC ===
+{question or "(không có)"}
+
+=== TÓM TẮT INSIGHT THAM KHẢO ===
+{(insight_summary or "")[:1500] or "(không có)"}
+
+=== YÊU CẦU SỬA BÀI ===
+{ask}
+
+=== BÀI HIỆN TẠI ===
+{article}
+
+=== BÀI SAU CHỈNH SỬA ==="""
+    revised = (
+        _get_llm(
+            num_predict=_REVISE_ARTICLE_NUM_PREDICT,
+            temperature=0.2,
+            timeout=300,
+        )
+        .invoke(prompt)
+        .strip()
+    )
+    if not revised:
+        revised = article
+    if not revised.lstrip().startswith("#"):
+        revised = f"# Bài phân tích đã chỉnh sửa\n\n{revised}"
+    return {
+        "article_markdown": revised,
+        "outline": {"revision_instruction": ask, "source": "revise_article"},
+        "word_count": len(re.findall(r"\S+", revised)),
+        "sections_written": len(re.findall(r"^##\s+", revised, flags=re.MULTILINE)),
+    }
 
 
 def generate_article(

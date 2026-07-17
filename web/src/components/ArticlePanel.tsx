@@ -1,18 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Download, X } from "lucide-react";
+import { Download, Loader2, Sparkles, X } from "lucide-react";
 import type { ArticleResponse } from "@/lib/types";
 import { downloadText } from "@/lib/format";
 
 export function ArticlePanel({
   article,
   onClear,
+  onRevise,
 }: {
   article: ArticleResponse;
   onClear: () => void;
+  onRevise?: (instruction: string) => Promise<string | null>;
 }) {
+  const [instruction, setInstruction] = useState("");
+  const [revising, setRevising] = useState(false);
+  const [reviseError, setReviseError] = useState<string | null>(null);
+
   if (article.error) {
     return (
       <div className="rounded-xl border border-copper/30 bg-copper-soft/50 px-4 py-3 text-sm text-ink-soft">
@@ -26,6 +33,27 @@ export function ArticlePanel({
       ? article.chart_preview_base64
       : `data:image/png;base64,${article.chart_preview_base64}`
     : null;
+
+  async function submitRevision() {
+    const ask = instruction.trim();
+    if (!ask || !onRevise || revising) return;
+    setRevising(true);
+    setReviseError(null);
+    try {
+      const error = await onRevise(ask);
+      if (error) {
+        setReviseError(error);
+        return;
+      }
+      setInstruction("");
+    } catch (err) {
+      setReviseError(
+        err instanceof Error ? err.message : "Không sửa được bài viết",
+      );
+    } finally {
+      setRevising(false);
+    }
+  }
 
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-foam/50">
@@ -74,6 +102,41 @@ export function ArticlePanel({
           </button>
         </div>
       </div>
+      {onRevise && (
+        <div className="border-b border-line bg-white/70 px-4 py-3">
+          <label className="mb-1.5 block text-xs font-semibold text-ink">
+            Yêu cầu AI sửa bài
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <textarea
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              disabled={revising}
+              rows={2}
+              placeholder="Ví dụ: Viết ngắn hơn, thêm mục rủi ro, đổi giọng văn chuyên nghiệp hơn..."
+              className="min-h-16 flex-1 rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink-soft/45 focus:border-teal/40 focus:ring-2 focus:ring-teal/10 disabled:opacity-60"
+            />
+            <button
+              type="button"
+              onClick={() => void submitRevision()}
+              disabled={revising || !instruction.trim()}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-teal px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-32"
+            >
+              {revising ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {revising ? "Đang sửa" : "AI sửa bài"}
+            </button>
+          </div>
+          {reviseError && (
+            <p className="mt-2 text-xs font-medium text-copper">
+              {reviseError}
+            </p>
+          )}
+        </div>
+      )}
       <div className="prose-article max-h-[560px] overflow-y-auto px-5 py-4 scrollbar-thin">
         {chartSrc && (
           // eslint-disable-next-line @next/next/no-img-element

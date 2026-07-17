@@ -14,6 +14,7 @@ import {
 import {
   postArticle,
   postFeedback,
+  reviseArticle,
   saveDashboard,
   exportWord,
 } from "@/lib/api";
@@ -224,6 +225,28 @@ export function ReportCard({
       setWriting(false);
       setWritingLabel("Đang viết bài…");
     }
+  }
+
+  async function reviseCurrentArticle(instruction: string): Promise<string | null> {
+    const current = msg?.article;
+    if (!current?.article_markdown) return "Chưa có bài viết để sửa.";
+    const revised = await reviseArticle({
+      domainId,
+      question: payload.query,
+      articleMarkdown: current.article_markdown,
+      instruction,
+      insightSummary: resolvedInsight,
+    });
+    if (revised.error) return revised.error;
+    updateMessage(messageId, {
+      article: {
+        ...current,
+        ...revised,
+        chart_preview_base64:
+          current.chart_preview_base64 || revised.chart_preview_base64 || null,
+      },
+    });
+    return null;
   }
 
   async function downloadWord() {
@@ -560,6 +583,7 @@ export function ReportCard({
           <ArticlePanel
             article={msg.article}
             onClear={() => updateMessage(messageId, { article: null })}
+            onRevise={reviseCurrentArticle}
           />
         )}
       </div>
