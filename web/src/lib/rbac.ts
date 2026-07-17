@@ -5,6 +5,7 @@ export type ClientRole = "admin" | "analyst" | "viewer";
 const PERMS: Record<string, ClientRole[]> = {
   chat: ["admin", "analyst", "viewer"],
   export: ["admin", "analyst"],
+  "dashboard.read": ["admin", "analyst", "viewer"],
   "dashboard.write": ["admin", "analyst"],
   "article.write": ["admin", "analyst"],
   "article.revise": ["admin", "analyst"],

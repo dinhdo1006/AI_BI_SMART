@@ -14,7 +14,13 @@ from core.auth import auth_enabled, get_request_identity, require_permission
 from core.config_loader import list_available_domains, load_domain_config
 from core.cross_domain import detect_cross_domain_request
 from core.cross_domain_join import execute_cross_domain, plan_cross_domain_query
-from core.dashboard_store import create_dashboard, get_dashboard, set_dashboard_public
+from core.dashboard_store import (
+    create_dashboard,
+    delete_dashboard,
+    get_dashboard,
+    list_dashboards,
+    set_dashboard_public,
+)
 from core.db_dialect import detect_dialect, dialect_label
 from core.db_executor import DbQueryError, execute_query
 from core.domain_explorer import build_domain_explore
@@ -363,6 +369,9 @@ class FeedbackRequest(BaseModel):
 class FeedbackResponse(BaseModel):
     ok: bool = True
     cache_invalidated: int = 0
+    learned: bool = False
+    blacklisted: int = 0
+    examples_removed: int = 0
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
@@ -370,13 +379,15 @@ def submit_feedback(
     request: FeedbackRequest,
     http_request: Request,
 ) -> FeedbackResponse:
-    """Lưu thumbs up/down — downvote thì xóa cache câu hỏi tương ứng."""
+    """Lưu thumbs up/down — 👍 nuôi few-shot; 👎 xóa cache + blacklist semantic."""
+    from core.feedback_learn import apply_feedback
     from core.query_cache import invalidate_query_cache
 
     identity = get_request_identity(http_request)
     tid = request.tenant_id or identity.get("tenant_id")
     if tid in ("platform", ""):
         tid = None
+    tenant = str(tid) if tid else None
 
     log_feedback(
         domain_id=request.domain_id,
@@ -387,14 +398,28 @@ def submit_feedback(
         status=request.status,
         artifact_id=request.artifact_id,
     )
+    learn = apply_feedback(
+        domain_id=request.domain_id,
+        query=request.query,
+        vote=request.vote,
+        sql_query=request.sql_query or "",
+        tenant_id=tenant,
+        artifact_id=request.artifact_id,
+    )
     invalidated = 0
     if request.vote == "down":
         invalidated = invalidate_query_cache(
             request.domain_id,
             request.query,
-            tenant_id=str(tid) if tid else None,
+            tenant_id=tenant,
         )
-    return FeedbackResponse(ok=True, cache_invalidated=invalidated)
+    return FeedbackResponse(
+        ok=True,
+        cache_invalidated=invalidated,
+        learned=bool(learn.get("learned")),
+        blacklisted=int(learn.get("blacklisted") or 0),
+        examples_removed=int(learn.get("examples_removed") or 0),
+    )
 
 
 @router.post("/analyze_upload", response_model=ChatResponse)
@@ -1064,6 +1089,26 @@ def create_dashboard_endpoint(
     return {"id": payload["id"], "title": payload["title"], "is_public": payload.get("is_public", False)}
 
 
+@router.get("/dashboards")
+def list_dashboards_endpoint(
+    http_request: Request,
+    domain_id: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Danh sách dashboard đã lưu (mở / quản lý public)."""
+    require_permission(http_request, "dashboard.read")
+    identity = get_request_identity(http_request)
+    tid = identity.get("tenant_id")
+    if tid == "platform":
+        tid = None
+    items = list_dashboards(
+        domain_id=domain_id or None,
+        tenant_id=str(tid) if tid else None,
+        limit=limit,
+    )
+    return {"dashboards": items, "count": len(items)}
+
+
 @router.get("/dashboards/{dash_id}")
 def get_dashboard_endpoint(dash_id: str, http_request: Request) -> dict[str, Any]:
     require_permission(http_request, "dashboard.read")
@@ -1075,6 +1120,19 @@ def get_dashboard_endpoint(dash_id: str, http_request: Request) -> dict[str, Any
     if not data:
         raise HTTPException(status_code=404, detail="Dashboard không tồn tại")
     return data
+
+
+@router.delete("/dashboards/{dash_id}")
+def delete_dashboard_endpoint(dash_id: str, http_request: Request) -> dict[str, Any]:
+    require_permission(http_request, "dashboard.write")
+    identity = get_request_identity(http_request)
+    tid = identity.get("tenant_id")
+    if tid == "platform":
+        tid = None
+    ok = delete_dashboard(dash_id, tenant_id=str(tid) if tid else None)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Dashboard không tồn tại")
+    return {"ok": True, "id": dash_id}
 
 
 @router.patch("/dashboards/{dash_id}/public")
@@ -1216,8 +1274,15 @@ def chat(
         _log_out("success", row_count=len(request.reuse_data), viz_only=True)
         return resp
 
-    # --- Cache: câu hỏi đã hỏi trước đó → trả ngay, bỏ qua LLM + DB ---
-    cached = get_cached_response(request.domain_id, request.query, tenant_id)
+    # --- Cache: bỏ qua nếu câu hỏi đã bị downvote (blacklist semantic) ---
+    from core.feedback_learn import is_query_blacklisted, merge_few_shot_examples
+    from core.query_cache import invalidate_query_cache
+
+    if is_query_blacklisted(request.domain_id, request.query, tenant_id):
+        invalidate_query_cache(request.domain_id, request.query, tenant_id=tenant_id)
+        cached = None
+    else:
+        cached = get_cached_response(request.domain_id, request.query, tenant_id)
     if cached:
         sql_source = str(cached.get("sql_source") or "cache")
         sql = str(cached.get("sql_query") or "")
@@ -1235,6 +1300,14 @@ def chat(
     except ValueError as exc:
         _log_out("error", error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Ghép few-shot đã học từ 👍 vào config trước khi RAG/LLM
+    domain_config = dict(domain_config)
+    domain_config["few_shot_examples"] = merge_few_shot_examples(
+        list(domain_config.get("few_shot_examples") or []),
+        request.domain_id,
+        tenant_id=tenant_id,
+    )
 
     labels = domain_config.get("column_labels", {}) or {}
     entities = resolve_query_entities(request.query, domain_config.get("db_url"))

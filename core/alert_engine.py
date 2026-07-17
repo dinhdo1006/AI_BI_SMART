@@ -118,6 +118,12 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
 
     # Rising edge: chỉ tạo event khi vừa chuyển sang trạng thái kích hoạt
     if triggered and not was_triggered:
+        suggested = (
+            f"Phân tích {rule.get('target')} liên quan {rule['metric_key']} "
+            f"(ngưỡng {rule['operator']} {rule['threshold']})"
+            if rule.get("target")
+            else f"Giải thích alert {rule.get('name')}: {msg}"
+        )
         event = add_event(
             rule_id=rule["id"],
             domain_id=domain_id,
@@ -127,10 +133,13 @@ def evaluate_rule(rule: dict[str, Any]) -> dict[str, Any]:
                 "label": label,
                 "metric_label": metric["label"],
                 "kind": kind,
+                "suggested_query": suggested,
+                "artifact_ref": None,  # gắn sau khi user hỏi lại trong chat
             },
         )
         result["event_id"] = event["id"]
         result["new_event"] = True
+        result["suggested_query"] = suggested
         try:
             from core.alert_notify import notify_alert
 

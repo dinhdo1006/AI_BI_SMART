@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchMonitoringMetrics } from "@/lib/api";
+import Link from "next/link";
+import { fetchAlertEvents, fetchMonitoringMetrics } from "@/lib/api";
+import type { AlertEvent } from "@/lib/types";
 
 type Metrics = {
   total_requests: number;
@@ -20,6 +22,24 @@ type Metrics = {
 
 async function loadMetrics(hours: number): Promise<Metrics | null> {
   return fetchMonitoringMetrics(hours);
+}
+
+function askFromEvent(ev: AlertEvent): string {
+  return (
+    ev.payload?.suggested_query ||
+    (ev.target
+      ? `Phân tích ${ev.target} liên quan ${ev.metric_key} (ngưỡng ${ev.operator} ${ev.threshold})`
+      : `Giải thích alert ${ev.rule_name}: ${ev.message}`)
+  );
+}
+
+function goAskInChat(query: string) {
+  try {
+    sessionStorage.setItem("abi_suggest", query);
+  } catch {
+    /* ignore */
+  }
+  window.location.href = "/";
 }
 
 function KpiCard({
@@ -84,15 +104,27 @@ function BreakdownTable({
 export default function MonitoringPage() {
   const [hours, setHours] = useState(24);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadMetrics(hours).then((m) => {
-      if (!m) setError("Không tải được metrics. Đảm bảo đăng nhập admin.");
-      else setMetrics(m);
-      setLoading(false);
-    });
+    let cancelled = false;
+    void Promise.all([loadMetrics(hours), fetchAlertEvents(null, 30)]).then(
+      ([m, events]) => {
+        if (cancelled) return;
+        if (!m) setError("Không tải được metrics. Đảm bảo đăng nhập admin.");
+        else {
+          setError(null);
+          setMetrics(m);
+        }
+        setAlertEvents(events);
+        setLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [hours]);
 
   return (
@@ -105,12 +137,24 @@ export default function MonitoringPage() {
           <h1 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-extrabold text-ink">
             Monitoring Dashboard
           </h1>
+          <p className="mt-1 text-sm text-ink-soft">
+            Theo dõi request + lịch sử alert — bấm hỏi lại để nối sang chat.
+          </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="rounded-lg border border-line bg-white px-3 py-1 text-sm font-semibold text-ink hover:bg-foam"
+          >
+            ← Chat
+          </Link>
           <label className="text-xs text-ink-soft">Khoảng thời gian:</label>
           <select
             value={hours}
-            onChange={(e) => setHours(Number(e.target.value))}
+            onChange={(e) => {
+              setLoading(true);
+              setHours(Number(e.target.value));
+            }}
             className="rounded-lg border border-line bg-white px-2 py-1 text-sm text-ink"
           >
             <option value={1}>1 giờ</option>
@@ -122,8 +166,17 @@ export default function MonitoringPage() {
           <button
             onClick={() => {
               setLoading(true);
-              loadMetrics(hours).then((m) => {
-                if (m) setMetrics(m);
+              void Promise.all([
+                loadMetrics(hours),
+                fetchAlertEvents(null, 30),
+              ]).then(([m, events]) => {
+                if (m) {
+                  setError(null);
+                  setMetrics(m);
+                } else {
+                  setError("Không tải được metrics. Đảm bảo đăng nhập admin.");
+                }
+                setAlertEvents(events);
                 setLoading(false);
               });
             }}
@@ -144,7 +197,6 @@ export default function MonitoringPage() {
         <p className="text-sm text-ink-soft">Đang tải metrics…</p>
       ) : metrics ? (
         <div className="space-y-6">
-          {/* KPIs */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <KpiCard label="Tổng request" value={metrics.total_requests} />
             <KpiCard
@@ -176,7 +228,67 @@ export default function MonitoringPage() {
             />
           </div>
 
-          {/* Breakdown tables */}
+          <div className="rounded-xl border border-line bg-white/95 p-5 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-ink">
+                Lịch sử alert ({alertEvents.length})
+              </p>
+              <span className="text-[11px] text-ink-soft/60">
+                Event ID = tham chiếu phân tích tiếp
+              </span>
+            </div>
+            {alertEvents.length === 0 ? (
+              <p className="text-sm text-ink-soft">
+                Chưa có event — tạo rule ở sidebar và bấm «Kiểm tra ngay».
+              </p>
+            ) : (
+              <div className="divide-y divide-line">
+                {alertEvents.map((ev) => {
+                  const when = (() => {
+                    try {
+                      return new Date(ev.triggered_at).toLocaleString("vi-VN");
+                    } catch {
+                      return ev.triggered_at;
+                    }
+                  })();
+                  return (
+                    <div
+                      key={ev.id}
+                      className="flex flex-wrap items-start justify-between gap-3 py-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-md bg-copper-soft/50 px-1.5 py-0.5 font-mono text-[10px] text-copper">
+                            #{ev.id.slice(0, 8)}
+                          </span>
+                          <span className="text-xs font-semibold text-ink">
+                            {ev.rule_name}
+                          </span>
+                          <span className="text-[11px] text-ink-soft/55">
+                            {ev.domain_id}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-ink">{ev.message}</p>
+                        <p className="mt-0.5 text-[11px] text-ink-soft/55">
+                          {when} · {ev.metric_key}
+                          {ev.target ? ` · ${ev.target}` : ""} · giá trị{" "}
+                          {ev.value}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => goAskInChat(askFromEvent(ev))}
+                        className="shrink-0 rounded-lg bg-teal px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-deep"
+                      >
+                        Hỏi lại trong chat →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="grid gap-5 md:grid-cols-2">
             <BreakdownTable
               title="SQL Source Breakdown"
@@ -188,7 +300,6 @@ export default function MonitoringPage() {
             />
           </div>
 
-          {/* Requests by hour */}
           {Object.keys(metrics.requests_by_hour).length > 0 && (
             <div className="rounded-xl border border-line bg-white/95 p-5 shadow-sm">
               <p className="mb-3 text-sm font-bold text-ink">
@@ -210,7 +321,10 @@ export default function MonitoringPage() {
                       >
                         <div
                           className="w-6 rounded-t bg-teal/70"
-                          style={{ height: `${Math.max(pct, 2)}px`, maxHeight: "80px" }}
+                          style={{
+                            height: `${Math.max(pct, 2)}px`,
+                            maxHeight: "80px",
+                          }}
                         />
                         <span className="text-[9px] text-ink-soft/50 rotate-45">
                           {h.slice(11, 16)}
@@ -222,7 +336,6 @@ export default function MonitoringPage() {
             </div>
           )}
 
-          {/* Top queries */}
           {metrics.top_queries.length > 0 && (
             <div className="rounded-xl border border-line bg-white/95 p-5 shadow-sm">
               <p className="mb-3 text-sm font-bold text-ink">

@@ -153,3 +153,84 @@ def get_dashboard(
     ):
         return None
     return data
+
+
+def list_dashboards(
+    *,
+    domain_id: str | None = None,
+    tenant_id: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Danh sách dashboard (metadata) — mới nhất trước."""
+    limit = max(1, min(int(limit), 100))
+    with _LOCK:
+        conn = _conn()
+        try:
+            sql = """
+                SELECT id, title, domain_id, created_at, tenant_id, is_public, payload
+                FROM dashboards
+                WHERE 1=1
+            """
+            args: list[Any] = []
+            if domain_id:
+                sql += " AND domain_id = ?"
+                args.append(domain_id)
+            if tenant_id and tenant_id not in ("platform",):
+                sql += " AND (tenant_id IS NULL OR tenant_id = ?)"
+                args.append(tenant_id)
+            sql += " ORDER BY created_at DESC LIMIT ?"
+            args.append(limit)
+            rows = conn.execute(sql, args).fetchall()
+        finally:
+            conn.close()
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        report_count = 0
+        try:
+            payload = json.loads(row[6] or "{}")
+            report_count = len(payload.get("reports") or [])
+        except json.JSONDecodeError:
+            payload = {}
+        out.append(
+            {
+                "id": row[0],
+                "title": row[1],
+                "domain_id": row[2],
+                "created_at": row[3],
+                "tenant_id": row[4],
+                "is_public": bool(row[5]),
+                "report_count": report_count,
+            }
+        )
+    return out
+
+
+def delete_dashboard(
+    dash_id: str,
+    *,
+    tenant_id: str | None = None,
+) -> bool:
+    """Xóa dashboard. Tôn trọng tenant nếu có."""
+    with _LOCK:
+        conn = _conn()
+        try:
+            row = conn.execute(
+                "SELECT tenant_id FROM dashboards WHERE id = ?",
+                (dash_id,),
+            ).fetchone()
+            if not row:
+                return False
+            owner = row[0]
+            if (
+                tenant_id
+                and tenant_id not in ("platform",)
+                and owner
+                and owner != tenant_id
+            ):
+                return False
+            conn.execute("DELETE FROM dashboards WHERE id = ?", (dash_id,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()

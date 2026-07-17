@@ -584,6 +584,40 @@ export async function saveDashboard(params: {
   return (await res.json()) as { id: string; is_public?: boolean };
 }
 
+export type DashboardListItem = {
+  id: string;
+  title: string;
+  domain_id: string;
+  created_at: string;
+  is_public: boolean;
+  report_count: number;
+};
+
+export async function fetchDashboards(
+  domainId?: string,
+): Promise<DashboardListItem[]> {
+  const q = domainId
+    ? `?domain_id=${encodeURIComponent(domainId)}`
+    : "";
+  try {
+    const res = await apiFetch(`/api/v1/dashboards${q}`, { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { dashboards?: DashboardListItem[] };
+    return data.dashboards || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteDashboard(id: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(`/api/v1/dashboards/${id}`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function setDashboardPublic(
   id: string,
   isPublic: boolean,
@@ -795,18 +829,22 @@ export async function fetchAlertScheduler(): Promise<AlertSchedulerStatus | null
 }
 
 export async function fetchAlertEvents(
-  domainId: string,
+  domainId?: string | null,
   limit = 20,
 ): Promise<AlertEvent[]> {
-  const res = await fetch(
-    apiUrl(
-      `/api/v1/alerts/events?domain_id=${encodeURIComponent(domainId)}&limit=${limit}`,
-    ),
-    { cache: "no-store" },
-  );
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.events || []) as AlertEvent[];
+  const q = new URLSearchParams();
+  if (domainId) q.set("domain_id", domainId);
+  q.set("limit", String(limit));
+  try {
+    const res = await apiFetch(`/api/v1/alerts/events?${q}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.events || []) as AlertEvent[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchAutoArticles(

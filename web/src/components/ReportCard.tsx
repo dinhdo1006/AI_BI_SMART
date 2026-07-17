@@ -344,6 +344,7 @@ export function ReportCard({
         setDashId(res.id);
         setDashUrl(`/dashboard/${res.id}`);
         setEmbedPublic(false);
+        window.dispatchEvent(new CustomEvent("abi:dashboard-saved"));
       }
     } finally {
       setSavingDash(false);
@@ -390,8 +391,8 @@ export function ReportCard({
       updateMessage(messageId, { feedback: vote });
       setFeedbackNote(
         vote === "up"
-          ? "Đã ghi nhận — giúp ưu tiên kiểu trả lời này lần sau."
-          : "Đã ghi nhận — đã gỡ cache câu hỏi này để lần sau tính lại.",
+          ? "Đã ghi nhận — SQL này sẽ được ưu tiên làm mẫu cho câu hỏi tương tự."
+          : "Đã ghi nhận — đã gỡ cache và chặn kết quả tương tự; lần sau sẽ tính lại.",
       );
     }
   }

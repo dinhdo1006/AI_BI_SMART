@@ -160,13 +160,35 @@ export function ChatPanel() {
 
   useEffect(() => {
     const onSuggest = (e: Event) => {
-      const q = (e as CustomEvent<string>).detail;
+      const detail = (e as CustomEvent<string | { query?: string }>).detail;
+      const q =
+        typeof detail === "string"
+          ? detail
+          : detail && typeof detail === "object"
+            ? detail.query
+            : "";
       if (q) void sendQuery(q);
     };
     window.addEventListener("abi:suggest", onSuggest);
     return () => window.removeEventListener("abi:suggest", onSuggest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domainId, loading]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const pending = sessionStorage.getItem("abi_suggest");
+        if (pending) {
+          sessionStorage.removeItem("abi_suggest");
+          void sendQuery(pending);
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();

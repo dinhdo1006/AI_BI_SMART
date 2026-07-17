@@ -102,12 +102,15 @@ export function AlertPanel({ domainId }: { domainId: string }) {
   }, [domainId, metricKey]);
 
   useEffect(() => {
-    setOpen(false);
-    setRunNote(null);
-    setMetricKey("");
-    setName("");
-    setTarget("");
-    void reload();
+    const timer = window.setTimeout(() => {
+      setOpen(false);
+      setRunNote(null);
+      setMetricKey("");
+      setName("");
+      setTarget("");
+      void reload();
+    }, 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on domain change only
   }, [domainId]);
 
@@ -363,25 +366,47 @@ export function AlertPanel({ domainId }: { domainId: string }) {
           {events.length > 0 && (
             <div>
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-soft/55">
-                Vừa kích hoạt
+                Lịch sử kích hoạt
               </p>
-              <ul className="max-h-28 space-y-1 overflow-y-auto scrollbar-thin">
-                {events.slice(0, 5).map((ev) => {
-                  const askQ = ev.target
-                    ? `Phân tích ${ev.target} liên quan ${ev.metric_key} (ngưỡng ${ev.operator} ${ev.threshold})`
-                    : `Giải thích alert ${ev.rule_name}: ${ev.message}`;
+              <ul className="max-h-40 space-y-1 overflow-y-auto scrollbar-thin">
+                {events.slice(0, 12).map((ev) => {
+                  const askQ =
+                    ev.payload?.suggested_query ||
+                    (ev.target
+                      ? `Phân tích ${ev.target} liên quan ${ev.metric_key} (ngưỡng ${ev.operator} ${ev.threshold})`
+                      : `Giải thích alert ${ev.rule_name}: ${ev.message}`);
+                  const when = (() => {
+                    try {
+                      return new Date(ev.triggered_at).toLocaleString("vi-VN", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                    } catch {
+                      return ev.triggered_at.slice(0, 16);
+                    }
+                  })();
                   return (
                     <li
                       key={ev.id}
                       className="rounded-md bg-copper-soft/35 px-2 py-1 text-[10px] leading-snug text-copper"
                     >
-                      <p>{ev.message}</p>
+                      <div className="flex items-start justify-between gap-1">
+                        <p className="min-w-0">{ev.message}</p>
+                        <span className="shrink-0 font-mono text-[9px] text-ink-soft/50">
+                          #{ev.id.slice(0, 6)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[9px] text-ink-soft/55">{when}</p>
                       <button
                         type="button"
                         className="mt-0.5 font-semibold underline hover:text-ink"
                         onClick={() =>
                           window.dispatchEvent(
-                            new CustomEvent("abi:suggest", { detail: askQ }),
+                            new CustomEvent("abi:suggest", {
+                              detail: { query: askQ, alertEventId: ev.id },
+                            }),
                           )
                         }
                       >

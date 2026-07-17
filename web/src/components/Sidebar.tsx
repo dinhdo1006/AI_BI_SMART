@@ -25,6 +25,7 @@ import type { DomainExplore, DomainsHealth } from "@/lib/types";
 import { useChatStore, type ChatSession } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { AlertPanel } from "@/components/AlertPanel";
+import { DashboardPanel } from "@/components/DashboardPanel";
 import { canClient } from "@/lib/rbac";
 import { AutoArticlePanel } from "@/components/AutoArticlePanel";
 
@@ -283,6 +284,7 @@ export function Sidebar() {
         )}
 
         {canClient("alerts.manage") && <AlertPanel domainId={domainId} />}
+        <DashboardPanel domainId={domainId} />
         <AutoArticlePanel domainId={domainId} />
 
         <div>

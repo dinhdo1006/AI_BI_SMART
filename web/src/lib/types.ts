@@ -231,6 +231,13 @@ export type AlertEvent = {
   operator: string;
   threshold: number;
   target: string | null;
+  payload?: {
+    suggested_query?: string;
+    artifact_ref?: string | null;
+    metric_label?: string;
+    kind?: string;
+    [key: string]: unknown;
+  };
 };
 
 export type AlertRunResult = {
